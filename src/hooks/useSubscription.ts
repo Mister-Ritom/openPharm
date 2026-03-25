@@ -29,7 +29,8 @@ export async function syncRevenueCatUser(userId?: string) {
   
   if (userId) {
     await Purchases.logIn(userId);
-  } else {
+  } else if (!await Purchases.isAnonymous()) {
+    // Only log out if we're not already anonymous to avoid the error
     await Purchases.logOut();
   }
 }
