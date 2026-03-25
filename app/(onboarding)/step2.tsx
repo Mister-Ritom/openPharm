@@ -12,7 +12,7 @@ export default function OnboardingStep2() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <Image 
-          source={require('../../assets/images/onboarding_2_scan_1774416422212.png')} 
+          source={require('../../assets/images/onboarding_2.png')} 
           style={styles.image}
           resizeMode="contain"
         />

@@ -60,7 +60,7 @@ export default function PaywallScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container} bounces={false}>
       <Image
-        source={require('../assets/images/paywall_hero_1774416445423.png')}
+        source={require('../assets/images/paywall_hero.png')}
         style={styles.hero}
         resizeMode="cover"
       />

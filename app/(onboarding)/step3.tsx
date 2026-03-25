@@ -13,7 +13,7 @@ export default function OnboardingStep3() {
       <View style={styles.container}>
         <Image 
           // Reusing the hero illustration for the trial/confidence screen
-          source={require('../../assets/images/paywall_hero_1774416445423.png')} 
+          source={require('../../assets/images/paywall_hero.png')} 
           style={styles.image}
           resizeMode="contain"
         />
