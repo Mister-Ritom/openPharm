@@ -14,7 +14,8 @@ export default function ResultScreen() {
   if (!data) return <View style={styles.safe} />;
   
   const product = JSON.parse(data as string);
-  const rating = product.healthRating || 'E'; // A-E
+  const rating = product.grade || 'C'; // A-E
+  const nutrients = product.nutrients || {};
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -22,30 +23,35 @@ export default function ResultScreen() {
         
         <View style={styles.header}>
           <Button variant="tertiary" title="Close" onPress={() => router.back()} style={styles.closeBtn} />
-          <Text style={styles.dataSourceLabel}>Data from {product.dataSource}</Text>
+          <Text style={styles.dataSourceLabel}>Data from {product.dataSource || 'System'}</Text>
         </View>
 
         <View style={styles.heroSection}>
           <View style={styles.titleRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.productName}>{product.productName || 'Unknown Product'}</Text>
+              <Text style={styles.productName}>{product.name || 'Unknown Product'}</Text>
               <Text style={styles.brandName}>{product.brand || 'Unknown Brand'}</Text>
             </View>
             <RatingBadge rating={rating} />
           </View>
           
           <Text style={styles.analysisSummary}>
-            {product.analysisSummary || 'This product contains ingredients that require moderation based on your health profile.'}
+            {product.warnings && product.warnings.length > 0 
+              ? `This product has ${product.warnings.length} flags based on your health profile.`
+              : 'This product looks safe for your health profile!'}
           </Text>
         </View>
 
         <Card variant="elevated" style={styles.flagsCard}>
-          <Text style={styles.sectionTitle}>Noteworthy Ingredients</Text>
-          {product.flags && product.flags.length > 0 ? (
-            product.flags.map((flag: any, idx: number) => (
+          <Text style={styles.sectionTitle}>Tailored Warnings</Text>
+          {product.warnings && product.warnings.length > 0 ? (
+            product.warnings.map((warning: any, idx: number) => (
               <View key={idx} style={styles.flagItem}>
-                <View style={[styles.flagDot, { backgroundColor: flag.severity === 'high' ? theme.colors.error : theme.colors.primary }]} />
-                <Text style={styles.flagText}>{flag.ingredient}: {flag.reason}</Text>
+                <View style={[styles.flagDot, { backgroundColor: warning.severity === 'high' ? theme.colors.error : theme.colors.primary }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.flagIngredient}>{warning.ingredient}</Text>
+                  <Text style={styles.flagText}>{warning.reason}</Text>
+                </View>
               </View>
             ))
           ) : (
@@ -57,19 +63,19 @@ export default function ResultScreen() {
           <Text style={styles.sectionTitle}>Nutrition Highlights (per 100g)</Text>
           <View style={styles.nutrimentGrid}>
             <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{product.nutriments?.energyKcal || '--'}</Text>
+              <Text style={styles.nutriValue}>{nutrients.energy_kcal ?? '--'}</Text>
               <Text style={styles.nutriLabel}>Kcal</Text>
             </View>
             <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{product.nutriments?.totalSugarsG || '--'}g</Text>
+              <Text style={styles.nutriValue}>{nutrients.sugar_g ?? '--'}g</Text>
               <Text style={styles.nutriLabel}>Sugars</Text>
             </View>
             <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{product.nutriments?.saturatedFatG || '--'}g</Text>
-              <Text style={styles.nutriLabel}>Sat Fat</Text>
+              <Text style={styles.nutriValue}>{nutrients.fat_g ?? '--'}g</Text>
+              <Text style={styles.nutriLabel}>Total Fat</Text>
             </View>
             <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{product.nutriments?.sodiumMg || '--'}mg</Text>
+              <Text style={styles.nutriValue}>{nutrients.sodium_mg ?? '--'}mg</Text>
               <Text style={styles.nutriLabel}>Sodium</Text>
             </View>
           </View>
@@ -154,12 +160,19 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginRight: theme.spacing[3],
   },
+  flagIngredient: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodyLg,
+    fontWeight: '700',
+    color: theme.colors.onSurface,
+    marginBottom: 2,
+  },
   flagText: {
     flex: 1,
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodyMd,
-    color: theme.colors.onSurface,
-    lineHeight: 22,
+    color: theme.colors.onSurfaceVariant,
+    lineHeight: 20,
   },
   emptyText: {
     fontFamily: theme.typography.fontFamily.body,

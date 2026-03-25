@@ -7,11 +7,13 @@ import { theme } from '../src/theme/designSystem';
 import { PostHogProvider } from 'posthog-react-native';
 
 const posthogConfig = {
-  host: 'https://app.posthog.com',
+  host: 'https://eu.i.posthog.com',
 };
 
+const POSTHOG_API_KEY = 'phc_IbZDwVYFWvdPa0GMzQ7BELr04LgfS4lXsMuwlPapaMC';
+
 export default function RootLayout() {
-  const { user, initializing } = useAuth();
+  const { user, profile, initializing } = useAuth();
   const router = useRouter();
   const segments = useSegments();
   const [hasOnboarded, setHasOnboarded] = useState<boolean | null>(null);
@@ -25,19 +27,34 @@ export default function RootLayout() {
   useEffect(() => {
     if (initializing || hasOnboarded === null) return;
 
+    const path = segments.join('/');
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboardingGroup = segments[0] === '(onboarding)';
 
-    if (!user && !inAuthGroup) {
-      router.replace('/(auth)/login');
-    } else if (user) {
-      if (!hasOnboarded && !inOnboardingGroup) {
-        router.replace('/(onboarding)/step1');
-      } else if (hasOnboarded && (inAuthGroup || inOnboardingGroup)) {
-        router.replace('/(main)');
+    if (!user) {
+      if (!inAuthGroup) {
+        router.replace('/(auth)/login');
+      }
+    } else {
+      // User is logged in
+      const needsEmailVerification = user.email && !user.emailVerified;
+      const isVerifying = path.includes('verify-email');
+      const isSettingUp = path.includes('setup-profile');
+      
+      if (needsEmailVerification && !isVerifying) {
+        router.replace('/(auth)/verify-email');
+      } else if (!needsEmailVerification && !profile && !isSettingUp) {
+        // Force profile setup if missing
+        router.replace('/(auth)/setup-profile');
+      } else if (profile && !needsEmailVerification) {
+        if (!hasOnboarded && !inOnboardingGroup) {
+          router.replace('/(onboarding)/step1');
+        } else if (hasOnboarded && (inAuthGroup || inOnboardingGroup || isSettingUp || isVerifying)) {
+          router.replace('/(main)');
+        }
       }
     }
-  }, [user, initializing, hasOnboarded, segments]);
+  }, [user, profile, initializing, hasOnboarded, segments]);
 
   if (initializing || hasOnboarded === null) {
     return (
@@ -48,7 +65,7 @@ export default function RootLayout() {
   }
 
   return (
-    <PostHogProvider apiKey="phc_dummy_key_for_openpharm" options={posthogConfig}>
+    <PostHogProvider apiKey={POSTHOG_API_KEY} options={posthogConfig}>
       <Stack screenOptions={{ headerShown: false }} />
     </PostHogProvider>
   );

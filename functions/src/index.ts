@@ -1,29 +1,36 @@
 import * as functions from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { analyzeProduct, NutritionData } from './utils/analysisEngine';
 import { parseNutritionOCR } from './utils/ocrParser';
 
 admin.initializeApp();
 const db = admin.firestore();
 
-// AI Setup
-const ai = new GoogleGenerativeAI('AIzaSyAdekDS869fxsrEqPdC7oKKh6OXvhRsFjU');
+// AI Setup - In production, use defineSecret('GEMINI_API_KEY')
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAdekDS869fxsrEqPdC7oKKh6OXvhRsFjU';
 
-export const onScanProduct = functions.https.onCall(async (request: any) => {
+async function getUserProfile(uid: string) {
+  const userDoc = await db.collection('users').doc(uid).get();
+  return userDoc.exists ? userDoc.data() : null;
+}
+
+export const onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, async (request) => {
   const { barcode } = request.data;
   const uid = request.auth?.uid;
   if (!uid) throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+
+  await incrementUserScanCount(uid);
 
   // 1. Check cache
   const docRef = db.collection('products').doc(barcode);
   const docSnap = await docRef.get();
   
-  // Track scan count
-  await incrementUserScanCount(uid);
+  const profile = await getUserProfile(uid);
 
   if (docSnap.exists) {
-    return docSnap.data();
+    const rawData = docSnap.data() as NutritionData;
+    const analysis = analyzeProduct(rawData, profile);
+    return { ...rawData, ...analysis, cached: true };
   }
 
   // 2. Open Food Facts Lookup
@@ -35,35 +42,34 @@ export const onScanProduct = functions.https.onCall(async (request: any) => {
       const p = offData.product;
       const nutriments = p.nutriments || {};
       
-      const nutritionObj: NutritionData = {
-        energyKcal: nutriments['energy-kcal_100g'] || nutriments['energy-kcal'],
-        totalSugarsG: nutriments['sugars_100g'] || nutriments['sugars'],
-        totalFatG: nutriments['fat_100g'] || nutriments['fat'],
-        saturatedFatG: nutriments['saturated-fat_100g'] || nutriments['saturated-fat'],
-        sodiumMg: nutriments['sodium_100g'] ? nutriments['sodium_100g'] * 1000 : undefined,
-        proteinG: nutriments['proteins_100g'] || nutriments['proteins'],
-        carbohydratesG: nutriments['carbohydrates_100g'] || nutriments['carbohydrates'],
-        ingredientsList: p.ingredients_text || '',
+      const rawData: NutritionData = {
+        name: p.product_name || 'Unknown Product',
+        brand: p.brands || 'Unknown Brand',
+        ingredients: p.ingredients_text?.split(',').map((s: string) => s.trim()) || [],
+        nutrients: {
+          energy_kcal: nutriments['energy-kcal_100g'] || nutriments['energy-kcal'] || 0,
+          protein_g: nutriments['proteins_100g'] || nutriments['proteins'] || 0,
+          fat_g: nutriments['fat_100g'] || nutriments['fat'] || 0,
+          sugar_g: nutriments['sugars_100g'] || nutriments['sugars'] || 0,
+          sodium_mg: (nutriments['sodium_100g'] || 0) * 1000,
+        },
+        warnings: [] // Placeholder
       };
 
-      const analysis = analyzeProduct(nutritionObj);
+      const analysis = analyzeProduct(rawData, profile);
 
       const productRecord = {
+        ...rawData,
         barcode,
-        productName: p.product_name || 'Unknown Product',
-        brand: p.brands || 'Unknown Brand',
         imageUrl: p.image_url || null,
-        nutriments: nutritionObj,
-        ingredientsRaw: p.ingredients_text || '',
-        ...analysis,
         dataSource: 'OpenFoodFacts',
-        confidence: 100,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        scanCount: 1,
       };
 
+      // Save RAW metadata only (analysis is transient/tailored)
       await docRef.set(productRecord);
-      return productRecord;
+      
+      return { ...productRecord, ...analysis };
     }
   } catch (error) {
     console.error("OFF API Error:", error);
@@ -72,64 +78,35 @@ export const onScanProduct = functions.https.onCall(async (request: any) => {
   return { found: false };
 });
 
-
-export const onOCRSubmit = functions.https.onCall({ timeoutSeconds: 60, memory: '512MiB' }, async (request: any) => {
+export const onOCRSubmit = functions.https.onCall({ timeoutSeconds: 60, memory: '512MiB' }, async (request) => {
   const { barcode, ocrText } = request.data;
   const uid = request.auth?.uid;
   if (!uid) throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
 
   await incrementUserScanCount(uid);
 
-  const { data, confidence } = parseNutritionOCR(ocrText);
-  let finalData: NutritionData = { ingredientsList: '', ...data } as NutritionData;
+  try {
+    const rawData = await parseNutritionOCR(ocrText, GEMINI_API_KEY);
+    const profile = await getUserProfile(uid);
+    const analysis = analyzeProduct(rawData, profile);
 
-  if (confidence < 80) {
-    // Fallback to Gemini AI
-    const prompt = `Extract standard nutrition data from this OCR text of a food label. Return ONLY a pure JSON object matching this schema:
-    {
-      "energyKcal": number (optional),
-      "totalSugarsG": number (optional),
-      "totalFatG": number (optional),
-      "saturatedFatG": number (optional),
-      "sodiumMg": number (optional),
-      "proteinG": number (optional),
-      "carbohydratesG": number (optional),
-      "ingredientsList": string
+    const productRecord = {
+      barcode,
+      ...rawData,
+      dataSource: 'OCR+AI',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (barcode) {
+      // Save RAW metadata
+      await db.collection('products').doc(barcode).set(productRecord);
     }
     
-    OCR text:
-    ${ocrText}`;
-
-    try {
-      const model = ai.getGenerativeModel({ model: 'gemini-2.5-pro' });
-      const response = await model.generateContent(prompt);
-
-      const aiText = response.response.text().replace(/```json|```/g, '').trim();
-      const aiParsed = JSON.parse(aiText);
-      finalData = { ...finalData, ...aiParsed };
-    } catch (e) {
-      console.error("AI Parse Error:", e);
-    }
+    return { ...productRecord, ...analysis };
+  } catch (e: any) {
+    console.error("OCR Parse Error:", e);
+    throw new functions.https.HttpsError('internal', 'Failed to parse nutrition label: ' + e.message);
   }
-
-  const analysis = analyzeProduct(finalData);
-
-  const productRecord = {
-    barcode,
-    productName: 'Scanned Product',
-    brand: 'Unknown',
-    imageUrl: null,
-    nutriments: finalData,
-    ingredientsRaw: finalData.ingredientsList,
-    ...analysis,
-    dataSource: confidence < 80 ? 'AI' : 'OCR',
-    confidence,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    scanCount: 1,
-  };
-
-  await db.collection('products').doc(barcode).set(productRecord);
-  return productRecord;
 });
 
 async function incrementUserScanCount(uid: string) {

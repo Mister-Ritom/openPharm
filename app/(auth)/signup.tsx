@@ -21,6 +21,9 @@ export default function SignupScreen() {
     try {
       const cred = await auth().createUserWithEmailAndPassword(email, password);
       
+      // Send verification email
+      await cred.user.sendEmailVerification();
+      
       // Initialize firestore user document
       await firestore().collection('users').doc(cred.user.uid).set({
         email: cred.user.email,
