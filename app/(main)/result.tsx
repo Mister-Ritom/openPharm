@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -20,8 +20,9 @@ export default function ResultScreen() {
   
   const initialProduct = JSON.parse(data as string);
   const [product, setProduct] = useState(initialProduct);
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [pendingUpdates, setPendingUpdates] = useState<any>({});
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string>('');
 
   const isEditable = product.isEditable;
   const rating = product.grade || 'C';
@@ -29,18 +30,22 @@ export default function ResultScreen() {
 
   const handleUpdateField = (field: string, value: any, isNutrient = false) => {
     if (isNutrient) {
+      const parsedValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
+      // Optimistic UI Update
       setProduct((prev: any) => ({
         ...prev,
-        nutrients: {
-          ...prev.nutrients,
-          [field]: typeof value === 'string' ? parseFloat(value) || 0 : value
-        }
+        nutrients: { ...prev.nutrients, [field]: parsedValue }
+      }));
+      // Queue for background save
+      setPendingUpdates((prev: any) => ({
+        ...prev,
+        nutrients: { ...(prev.nutrients || product.nutrients), [field]: parsedValue }
       }));
     } else {
-      setProduct((prev: any) => ({
-        ...prev,
-        [field]: value
-      }));
+      // Optimistic UI Update
+      setProduct((prev: any) => ({ ...prev, [field]: value }));
+      // Queue for background save
+      setPendingUpdates((prev: any) => ({ ...prev, [field]: value }));
     }
   };
 
@@ -55,43 +60,80 @@ export default function ResultScreen() {
     });
 
     if (!result.canceled) {
-      setUploading(true);
+      const localUri = result.assets[0].uri;
+      
+      // Optimistic UI update instantly shows selected image
+      setProduct((prev: any) => ({ ...prev, productImageUrl: localUri }));
+      
+      setIsUploadingImage(true);
+      setSyncStatus('Uploading image...');
+      
       try {
         const barcode = product.barcode;
         const reference = storage().ref(`${barcode}/product_custom.jpg`);
-        await reference.putFile(result.assets[0].uri);
+        await reference.putFile(localUri);
         const url = await reference.getDownloadURL();
-        handleUpdateField('productImageUrl', url);
+        
+        // Queue the final remote URL for the background save
+        setPendingUpdates((prev: any) => ({ ...prev, productImageUrl: url }));
       } catch (e) {
         Alert.alert('Upload Failed', 'Could not save the image.');
       } finally {
-        setUploading(false);
+        setIsUploadingImage(false);
       }
     }
   };
 
-  const saveProductChanges = async () => {
-    setSaving(true);
-    try {
-      const response = await functions().httpsCallable('updateProduct')({
-        barcode: product.barcode,
-        updates: {
-          name: product.name,
-          brand: product.brand,
-          productImageUrl: product.productImageUrl,
-          nutrients: product.nutrients
-        }
-      });
-      
-      if (response.data && (response.data as any).success) {
-        Alert.alert('Success', 'Product information updated locally.');
+  // Reference to hold pending updates for unmount flushing
+  const pendingUpdatesRef = useRef(pendingUpdates);
+  useEffect(() => {
+    pendingUpdatesRef.current = pendingUpdates;
+  }, [pendingUpdates]);
+
+  // Flush pending updates when user navigates away (component unmounts)
+  useEffect(() => {
+    return () => {
+      const remainingUpdates = pendingUpdatesRef.current;
+      if (Object.keys(remainingUpdates).length > 0) {
+        // Fire and forget save on unmount
+        functions().httpsCallable('updateProduct')({
+          barcode: product.barcode,
+          updates: remainingUpdates
+        }).catch(err => console.error("Unmount save failed:", err));
       }
-    } catch (e: any) {
-      Alert.alert('Save Failed', e.message || 'Check your connection.');
-    } finally {
-      setSaving(false);
+    };
+  }, [product.barcode]);
+
+  // Background Queue Processor
+  useEffect(() => {
+    // Prevent saving if there are no pending changes OR if an image upload is actively blocking
+    if (Object.keys(pendingUpdates).length === 0 || isUploadingImage) {
+      return;
     }
-  };
+
+    setSyncStatus('Saving changes...');
+    
+    const timer = setTimeout(async () => {
+      try {
+        await functions().httpsCallable('updateProduct')({
+          barcode: product.barcode,
+          updates: pendingUpdates
+        });
+        
+        // Clear pending updates on success
+        setPendingUpdates({});
+        setSyncStatus('All changes saved');
+        
+        // Clear status text after a moment
+        setTimeout(() => setSyncStatus(''), 2000);
+      } catch (e: any) {
+        console.error("Background save failed:", e);
+        setSyncStatus('Save failed. Retrying in background...');
+      }
+    }, 4000); // 4-second debounce to batch consecutive user edits
+
+    return () => clearTimeout(timer);
+  }, [pendingUpdates, isUploadingImage, product.barcode]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -99,7 +141,10 @@ export default function ResultScreen() {
         
         <View style={styles.header}>
           <Button variant="tertiary" title="Close" onPress={() => router.back()} style={styles.closeBtn} />
-          <Text style={styles.dataSourceLabel}>{product.dataSource || 'System'} Result</Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.dataSourceLabel}>{product.dataSource || 'System'} Result</Text>
+            {!!syncStatus && <Text style={styles.syncStatusText}>{syncStatus}</Text>}
+          </View>
         </View>
 
         <View style={styles.heroSection}>
@@ -107,7 +152,7 @@ export default function ResultScreen() {
             <TouchableOpacity 
               activeOpacity={0.7} 
               onPress={pickImage} 
-              disabled={!isEditable || uploading}
+              disabled={!isEditable || isUploadingImage}
               style={styles.iconContainer}
             >
               {product.productImageUrl ? (
@@ -119,7 +164,7 @@ export default function ResultScreen() {
               )}
               {isEditable && (
                 <View style={styles.iconEditBadge}>
-                  {uploading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={12} color="#fff" />}
+                  {isUploadingImage ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={12} color="#fff" />}
                 </View>
               )}
             </TouchableOpacity>
@@ -236,15 +281,6 @@ export default function ResultScreen() {
           </View>
         </Card>
 
-        {isEditable && (
-          <Button 
-            title={saving ? "Saving..." : "Save Changes"} 
-            onPress={saveProductChanges} 
-            loading={saving}
-            style={{ marginTop: theme.spacing[8] }}
-          />
-        )}
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -273,6 +309,13 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.bodySm,
     color: theme.colors.outline,
     textTransform: 'uppercase',
+  },
+  syncStatusText: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: 10,
+    color: theme.colors.primary,
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   heroSection: {
     marginBottom: theme.spacing[8],

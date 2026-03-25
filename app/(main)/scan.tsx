@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, Alert, Dimensions, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Alert, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
@@ -15,9 +15,9 @@ import { CONFIG } from '../../src/constants/Config';
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
-  const [mode, setMode] = useState<'barcode' | 'productPhoto' | 'nutritionLabel' | 'processing'>('barcode');
+  const [mode, setMode] = useState<'barcode' | 'nutritionLabel' | 'processing'>('barcode');
   const [currentBarcode, setCurrentBarcode] = useState<string | null>(null);
-  const [productPhotoUri, setProductPhotoUri] = useState<string | null>(null);
+  const [processingStep, setProcessingStep] = useState<string>('');
 
   const cameraRef = useRef<CameraView>(null);
   const router = useRouter();
@@ -65,8 +65,8 @@ export default function ScanScreen() {
       const result = await functions().httpsCallable('onScanProduct')({ barcode: data });
       const resultData = result.data as any;
       if (resultData.found === false) {
-        Alert.alert('Not Found', 'This product is not in our database. Please help us by taking two photos:\n1. Front of Product\n2. Nutrition Label', [
-          { text: 'OK', onPress: () => setMode('productPhoto') }
+        Alert.alert('Not Found', 'This product is not in our database. Please take a photo of the Nutrition Label to analyze it.', [
+          { text: 'OK', onPress: () => setMode('nutritionLabel') }
         ]);
       } else {
         router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(result.data) } });
@@ -92,42 +92,38 @@ export default function ScanScreen() {
       const photo = await cameraRef.current.takePictureAsync({ base64: false });
       if (!photo) throw new Error('Failed to take photo');
 
-      if (mode === 'productPhoto') {
-        setProductPhotoUri(photo.uri);
-        setMode('nutritionLabel');
-      } else if (mode === 'nutritionLabel') {
+      if (mode === 'nutritionLabel') {
         setMode('processing');
-        
         const barcode = currentBarcode || `manual-${Date.now()}`;
         
         // 1. Upload images to Storage
+        setProcessingStep('Securing image upload...');
         const labelUrl = await uploadToStorage(photo.uri, `${barcode}/label.jpg`);
-        let productUrl = null;
-        if (productPhotoUri) {
-          productUrl = await uploadToStorage(productPhotoUri, `${barcode}/product.jpg`);
-        }
 
         // 2. OCR OCR
+        setProcessingStep('Extracting nutritional text...');
         const result = await TextRecognition.recognize(photo.uri);
         if (!result.text) {
           throw new Error('No text detected in nutrition label.');
         }
 
         // 3. Submit to server
+        setProcessingStep('Analyzing data with Clinical AI...');
         const response = await functions().httpsCallable('onOCRSubmit')({ 
           barcode, 
           ocrText: result.text,
           labelImageUrl: labelUrl,
-          productImageUrl: productUrl
+          productImageUrl: null
         });
         
         router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(response.data) } });
         setMode('barcode');
-        setProductPhotoUri(null);
+        setProcessingStep('');
       }
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to process image');
       setMode(mode === 'processing' ? 'nutritionLabel' : mode);
+      setProcessingStep('');
     }
   };
 
@@ -135,8 +131,9 @@ export default function ScanScreen() {
     <SafeAreaView style={styles.container}>
       {mode === 'processing' ? (
         <View style={styles.center}>
+          <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginBottom: 24 }} />
           <Text style={styles.title}>Analyzing...</Text>
-          <Text style={styles.text}>Consulting clinical databases</Text>
+          <Text style={styles.text}>{processingStep || 'Consulting clinical databases'}</Text>
         </View>
       ) : (
         <View style={styles.camContainer}>
@@ -152,16 +149,14 @@ export default function ScanScreen() {
             <View style={styles.overlay}>
               <View style={styles.header}>
                 <Text style={styles.overlayTitle}>
-                  {mode === 'barcode' ? 'Scan Product Barcode' : 
-                   mode === 'productPhoto' ? 'Take photo of the PRODUCT FRONT' :
-                   'Take photo of the NUTRITION LABEL'}
+                  {mode === 'barcode' ? 'Scan Product Barcode' : 'Take photo of the NUTRITION LABEL'}
                 </Text>
               </View>
 
               <View style={[styles.focusFrame, { height: mode === 'barcode' ? frameSize * 0.6 : frameSize }]} />
 
               <View style={styles.footer}>
-                {(mode === 'nutritionLabel' || mode === 'productPhoto') && (
+                {mode === 'nutritionLabel' && (
                   <TouchableOpacity style={styles.captureBtn} onPress={captureImage}>
                     <View style={styles.captureInner} />
                   </TouchableOpacity>
