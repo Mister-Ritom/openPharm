@@ -6,7 +6,7 @@ import { theme } from '../src/theme/designSystem';
 import { PostHogProvider } from 'posthog-react-native';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { OnboardingProvider, useOnboarding } from '../src/context/OnboardingContext';
-import { configureRevenueCat } from '../src/hooks/useSubscription';
+import { configureRevenueCat, syncRevenueCatUser } from '../src/hooks/useSubscription';
 
 const posthogConfig = {
   host: 'https://pharma.ritom.in',
@@ -36,10 +36,16 @@ function LayoutContent() {
     });
   }, []);
 
-  // Configure RevenueCat whenever the Firebase auth user changes
   useEffect(() => {
-    configureRevenueCat(user?.uid);
-  }, [user?.uid]);
+    configureRevenueCat();
+  }, []);
+
+  // Sync RevenueCat whenever the Firebase auth user changes
+  useEffect(() => {
+    if (!initializing) {
+      syncRevenueCatUser(user?.uid);
+    }
+  }, [user?.uid, initializing]);
 
   useEffect(() => {
     if (initializing || hasOnboarded === null) return;

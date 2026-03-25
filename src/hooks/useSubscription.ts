@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from './useAuth';
 import { Platform, Alert } from 'react-native';
 import Purchases, {
   PurchasesOffering,
@@ -12,17 +13,25 @@ const RC_IOS_KEY     = 'appl_zCEpFDZWyrdyjCJJgXUQhvNLKFd';
 const RC_TEST_KEY    = 'test_zbZVlVrccWXkAUjOukCKqRqDNwI';
 const ENTITLEMENT_ID = 'OpenPharma Pro';
 
-export function configureRevenueCat(userId?: string) {
+export async function configureRevenueCat() {
   if (Platform.OS === 'web') return;
 
-  // Use Test Store key in Dev for easy testing without real store IDs
-  // Use platform-specific keys in Production for real store integration
   const apiKey = __DEV__ 
     ? RC_TEST_KEY 
     : (Platform.OS === 'ios' ? RC_IOS_KEY : RC_ANDROID_KEY);
     
   Purchases.setLogLevel(LOG_LEVEL.WARN);
-  Purchases.configure({ apiKey, appUserID: userId ?? null });
+  Purchases.configure({ apiKey }); // Initialize without ID initially
+}
+
+export async function syncRevenueCatUser(userId?: string) {
+  if (Platform.OS === 'web') return;
+  
+  if (userId) {
+    await Purchases.logIn(userId);
+  } else {
+    await Purchases.logOut();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -36,9 +45,11 @@ interface SubscriptionState {
 }
 
 export function useSubscription(): SubscriptionState {
+  const { user, initializing: authInitializing } = useAuth();
   const [isPro, setIsPro]         = useState(false);
   const [loading, setLoading]     = useState(true);
   const [offerings, setOfferings] = useState<PurchasesOffering | null>(null);
+  const isSyncing = useRef(false);
 
   const checkStatus = useCallback(async (info?: CustomerInfo) => {
     try {
@@ -50,14 +61,18 @@ export function useSubscription(): SubscriptionState {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS === 'web') {
-      setLoading(false);
+    if (Platform.OS === 'web' || authInitializing) {
+      if (Platform.OS === 'web') setLoading(false);
       return;
     }
 
     let mounted = true;
 
-    (async () => {
+    const init = async () => {
+      // Small delay to allow RootLayout's syncRevenueCatUser to finish if it just triggered
+      if (isSyncing.current) return;
+      isSyncing.current = true;
+
       try {
         const [allOfferings] = await Promise.all([
           Purchases.getOfferings(),
@@ -68,8 +83,11 @@ export function useSubscription(): SubscriptionState {
         console.warn('[RevenueCat] useSubscription init error:', e);
       } finally {
         if (mounted) setLoading(false);
+        isSyncing.current = false;
       }
-    })();
+    };
+
+    init();
 
     const onCustomerInfoUpdate = (info: CustomerInfo) => { checkStatus(info); };
     Purchases.addCustomerInfoUpdateListener(onCustomerInfoUpdate);
@@ -78,7 +96,7 @@ export function useSubscription(): SubscriptionState {
       mounted = false;
       Purchases.removeCustomerInfoUpdateListener(onCustomerInfoUpdate);
     };
-  }, [checkStatus]);
+  }, [checkStatus, user?.uid, authInitializing]);
 
   const purchasePackage = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
     try {
