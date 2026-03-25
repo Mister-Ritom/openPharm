@@ -2,11 +2,18 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { theme } from '../../src/theme/designSystem';
 import { View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-// Reusable SVG icons could be imported here, but we'll use simple shapes/views as placeholders for demonstration
+// Using Ionicons for a professional look
 const TabIcon = ({ focused, color, name }: { focused: boolean, color: string, name: string }) => {
+  let iconName: any = name;
+  if (name === 'home') iconName = focused ? 'home' : 'home-outline';
+  else if (name === 'scan') iconName = focused ? 'barcode' : 'barcode-outline';
+  else if (name === 'history') iconName = focused ? 'time' : 'time-outline';
+  else if (name === 'profile') iconName = focused ? 'person' : 'person-outline';
+
   return (
-    <View style={[styles.icon, { backgroundColor: focused ? color : 'transparent', borderWidth: focused ? 0 : 2, borderColor: color }]} />
+    <Ionicons name={iconName} size={24} color={color} />
   );
 };
 
@@ -61,6 +68,13 @@ export default function MainLayout() {
         options={{ 
           title: 'Profile',
           tabBarIcon: ({ color, focused }) => <TabIcon name="profile" color={color} focused={focused} />
+        }} 
+      />
+
+      <Tabs.Screen 
+        name="result" 
+        options={{ 
+          href: null,
         }} 
       />
     </Tabs>

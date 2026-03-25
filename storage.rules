@@ -1,0 +1,11 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{barcode}/{allPaths=**} {
+      // Only authenticated users can read product images/labels
+      allow read: if request.auth != null;
+      // Only authenticated users can upload labels/product photos
+      allow write: if request.auth != null;
+    }
+  }
+}

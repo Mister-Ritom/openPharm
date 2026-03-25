@@ -1,4 +1,5 @@
 import harmfulData from '../data/harmfulIngredients.json';
+import thresholdsData from '../data/nutritionalThresholds.json';
 
 export interface NutritionData {
   name?: string;
@@ -8,6 +9,9 @@ export interface NutritionData {
     energy_kcal: number;
     protein_g: number;
     fat_g: number;
+    saturated_fat_g?: number;
+    trans_fat_g?: number;
+    carbohydrate_g?: number;
     sugar_g: number;
     sodium_mg: number;
   };
@@ -18,6 +22,9 @@ export interface NutritionData {
     severity: string;
   }>;
   grade?: 'A' | 'B' | 'C' | 'D' | 'E';
+  isEditable?: boolean;
+  labelImageUrl?: string;
+  productImageUrl?: string;
 }
 
 interface HarmfulIngredient {
@@ -30,6 +37,7 @@ interface HarmfulIngredient {
 }
 
 const HARMFUL_LIST = harmfulData as unknown as HarmfulIngredient[];
+const THRESHOLDS = thresholdsData as any;
 
 export function analyzeProduct(data: Partial<NutritionData>, userProfile?: any): any {
   const warnings: Array<{ ingredient: string, reason: string, severity: string }> = [];
@@ -65,15 +73,42 @@ export function analyzeProduct(data: Partial<NutritionData>, userProfile?: any):
     });
   }
 
-  // Nutritional penalties
-  if ((data.nutrients?.sugar_g || 0) > 15) {
-    warnings.push({ ingredient: 'Added Sugar', reason: 'High sugar content spikes insulin and leads to fat storage.', severity: 'medium' });
-    score -= 15;
-  }
-  if ((data.nutrients?.sodium_mg || 0) > 400) {
-    warnings.push({ ingredient: 'Sodium', reason: 'High sodium increases blood pressure and heart strain.', severity: 'medium' });
-    score -= 10;
-  }
+  // Nutritional penalties ("Dosage" checks)
+  const sugar = data.nutrients?.sugar_g || 0;
+  const sodium = data.nutrients?.sodium_mg || 0;
+  const satFat = data.nutrients?.fat_g || 0; // Simplified fat check as Sat Fat might missing
+  const protein = data.nutrients?.protein_g || 0;
+
+  userConditions.forEach((condition: string) => {
+    const limits = THRESHOLDS[condition] || THRESHOLDS.general;
+    if (sugar > limits.max_sugar_g) {
+      warnings.push({ 
+        ingredient: 'Sugar', 
+        reason: `Exceeds your ${condition} limit of ${limits.max_sugar_g}g. High sugar spikes insulin.`, 
+        severity: 'high' 
+      });
+      score -= 20;
+    }
+    if (sodium > limits.max_sodium_mg) {
+      warnings.push({ 
+        ingredient: 'Sodium', 
+        reason: `Exceeds your ${condition} limit of ${limits.max_sodium_mg}mg. Increases blood pressure.`, 
+        severity: 'medium' 
+      });
+      score -= 10;
+    }
+    if (satFat > (limits.max_sat_fat_g || 10)) {
+      warnings.push({ 
+        ingredient: 'Fat', 
+        reason: `Exceeds your ${condition} recommended fat limit.`, 
+        severity: 'low' 
+      });
+      score -= 5;
+    }
+    if (protein < (limits.min_protein_g || 0) && protein > 0) {
+       // Not a warning, just context or slight deduction if it's meant to be high protein
+    }
+  });
 
   let grade: 'A' | 'B' | 'C' | 'D' | 'E' = 'C';
   if (score >= 90) grade = 'A';

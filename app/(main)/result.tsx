@@ -1,11 +1,16 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { theme } from '../../src/theme/designSystem';
 import { Card } from '../../src/components/ui/Card';
 import { RatingBadge } from '../../src/components/ui/RatingBadge';
 import { Button } from '../../src/components/ui/Button';
+import { EditableField } from '../../src/components/ui/EditableField';
+import functions from '@react-native-firebase/functions';
+import storage from '@react-native-firebase/storage';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function ResultScreen() {
   const { data } = useLocalSearchParams();
@@ -13,9 +18,80 @@ export default function ResultScreen() {
 
   if (!data) return <View style={styles.safe} />;
   
-  const product = JSON.parse(data as string);
-  const rating = product.grade || 'C'; // A-E
+  const initialProduct = JSON.parse(data as string);
+  const [product, setProduct] = useState(initialProduct);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const isEditable = product.isEditable;
+  const rating = product.grade || 'C';
   const nutrients = product.nutrients || {};
+
+  const handleUpdateField = (field: string, value: any, isNutrient = false) => {
+    if (isNutrient) {
+      setProduct((prev: any) => ({
+        ...prev,
+        nutrients: {
+          ...prev.nutrients,
+          [field]: typeof value === 'string' ? parseFloat(value) || 0 : value
+        }
+      }));
+    } else {
+      setProduct((prev: any) => ({
+        ...prev,
+        [field]: value
+      }));
+    }
+  };
+
+  const pickImage = async () => {
+    if (!isEditable) return;
+    
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      setUploading(true);
+      try {
+        const barcode = product.barcode;
+        const reference = storage().ref(`${barcode}/product_custom.jpg`);
+        await reference.putFile(result.assets[0].uri);
+        const url = await reference.getDownloadURL();
+        handleUpdateField('productImageUrl', url);
+      } catch (e) {
+        Alert.alert('Upload Failed', 'Could not save the image.');
+      } finally {
+        setUploading(false);
+      }
+    }
+  };
+
+  const saveProductChanges = async () => {
+    setSaving(true);
+    try {
+      const response = await functions().httpsCallable('updateProduct')({
+        barcode: product.barcode,
+        updates: {
+          name: product.name,
+          brand: product.brand,
+          productImageUrl: product.productImageUrl,
+          nutrients: product.nutrients
+        }
+      });
+      
+      if (response.data && (response.data as any).success) {
+        Alert.alert('Success', 'Product information updated locally.');
+      }
+    } catch (e: any) {
+      Alert.alert('Save Failed', e.message || 'Check your connection.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -23,23 +99,55 @@ export default function ResultScreen() {
         
         <View style={styles.header}>
           <Button variant="tertiary" title="Close" onPress={() => router.back()} style={styles.closeBtn} />
-          <Text style={styles.dataSourceLabel}>Data from {product.dataSource || 'System'}</Text>
+          <Text style={styles.dataSourceLabel}>{product.dataSource || 'System'} Result</Text>
         </View>
 
         <View style={styles.heroSection}>
-          <View style={styles.titleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.productName}>{product.name || 'Unknown Product'}</Text>
-              <Text style={styles.brandName}>{product.brand || 'Unknown Brand'}</Text>
+          <View style={styles.productIconRow}>
+            <TouchableOpacity 
+              activeOpacity={0.7} 
+              onPress={pickImage} 
+              disabled={!isEditable || uploading}
+              style={styles.iconContainer}
+            >
+              {product.productImageUrl ? (
+                <Image source={{ uri: product.productImageUrl }} style={styles.productIcon} />
+              ) : (
+                <View style={[styles.productIcon, styles.iconPlaceholder]}>
+                  <Ionicons name="image-outline" size={32} color={theme.colors.outline} />
+                </View>
+              )}
+              {isEditable && (
+                <View style={styles.iconEditBadge}>
+                  {uploading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={12} color="#fff" />}
+                </View>
+              )}
+            </TouchableOpacity>
+            
+            <View style={{ flex: 1, marginLeft: theme.spacing[4] }}>
+              <EditableField 
+                label="Product Name" 
+                value={product.name} 
+                isEditable={isEditable}
+                onSave={(v) => handleUpdateField('name', v)}
+              />
+              <EditableField 
+                label="Brand" 
+                value={product.brand} 
+                isEditable={isEditable}
+                onSave={(v) => handleUpdateField('brand', v)}
+              />
             </View>
             <RatingBadge rating={rating} />
           </View>
           
-          <Text style={styles.analysisSummary}>
-            {product.warnings && product.warnings.length > 0 
-              ? `This product has ${product.warnings.length} flags based on your health profile.`
-              : 'This product looks safe for your health profile!'}
-          </Text>
+          <Card variant="elevated" style={styles.summaryCard}>
+            <Text style={styles.analysisSummary}>
+              {product.warnings && product.warnings.length > 0 
+                ? `This product has ${product.warnings.length} flags based on your health profile.`
+                : 'This product looks safe for your health profile!'}
+            </Text>
+          </Card>
         </View>
 
         <Card variant="elevated" style={styles.flagsCard}>
@@ -60,26 +168,82 @@ export default function ResultScreen() {
         </Card>
 
         <Card style={styles.nutrimentsCard}>
-          <Text style={styles.sectionTitle}>Nutrition Highlights (per 100g)</Text>
+          <Text style={styles.sectionTitle}>Nutrition Details (per 100g)</Text>
           <View style={styles.nutrimentGrid}>
-            <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{nutrients.energy_kcal ?? '--'}</Text>
-              <Text style={styles.nutriLabel}>Kcal</Text>
-            </View>
-            <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{nutrients.sugar_g ?? '--'}g</Text>
-              <Text style={styles.nutriLabel}>Sugars</Text>
-            </View>
-            <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{nutrients.fat_g ?? '--'}g</Text>
-              <Text style={styles.nutriLabel}>Total Fat</Text>
-            </View>
-            <View style={styles.nutriItem}>
-              <Text style={styles.nutriValue}>{nutrients.sodium_mg ?? '--'}mg</Text>
-              <Text style={styles.nutriLabel}>Sodium</Text>
-            </View>
+             <View style={styles.nutriItem}>
+                <EditableField 
+                  label="Energy (kcal)" 
+                  value={String(nutrients.energy_kcal || 0)} 
+                  isEditable={isEditable} 
+                  keyboardType="numeric"
+                  onSave={(v) => handleUpdateField('energy_kcal', v, true)}
+                />
+             </View>
+             <View style={styles.nutriItem}>
+                <EditableField 
+                  label="Protein (g)" 
+                  value={String(nutrients.protein_g || 0)} 
+                  isEditable={isEditable} 
+                  keyboardType="numeric"
+                  onSave={(v) => handleUpdateField('protein_g', v, true)}
+                />
+             </View>
+             <View style={styles.nutriItem}>
+                <EditableField 
+                  label="Carbs (g)" 
+                  value={String(nutrients.carbohydrate_g || 0)} 
+                  isEditable={isEditable} 
+                  keyboardType="numeric"
+                  onSave={(v) => handleUpdateField('carbohydrate_g', v, true)}
+                />
+             </View>
+             <View style={styles.nutriItem}>
+                <EditableField 
+                  label="Sugars (g)" 
+                  value={String(nutrients.sugar_g || 0)} 
+                  isEditable={isEditable} 
+                  keyboardType="numeric"
+                  onSave={(v) => handleUpdateField('sugar_g', v, true)}
+                />
+             </View>
+             <View style={styles.nutriItem}>
+                <EditableField 
+                  label="Total Fat (g)" 
+                  value={String(nutrients.fat_g || 0)} 
+                  isEditable={isEditable} 
+                  keyboardType="numeric"
+                  onSave={(v) => handleUpdateField('fat_g', v, true)}
+                />
+             </View>
+             <View style={styles.nutriItem}>
+                <EditableField 
+                  label="Sat. Fat (g)" 
+                  value={String(nutrients.saturated_fat_g || 0)} 
+                  isEditable={isEditable} 
+                  keyboardType="numeric"
+                  onSave={(v) => handleUpdateField('saturated_fat_g', v, true)}
+                />
+             </View>
+             <View style={styles.nutriItem}>
+                <EditableField 
+                  label="Sodium (mg)" 
+                  value={String(nutrients.sodium_mg || 0)} 
+                  isEditable={isEditable} 
+                  keyboardType="numeric"
+                  onSave={(v) => handleUpdateField('sodium_mg', v, true)}
+                />
+             </View>
           </View>
         </Card>
+
+        {isEditable && (
+          <Button 
+            title={saving ? "Saving..." : "Save Changes"} 
+            onPress={saveProductChanges} 
+            loading={saving}
+            style={{ marginTop: theme.spacing[8] }}
+          />
+        )}
 
       </ScrollView>
     </SafeAreaView>
@@ -113,11 +277,43 @@ const styles = StyleSheet.create({
   heroSection: {
     marginBottom: theme.spacing[8],
   },
-  titleRow: {
+  productIconRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: theme.spacing[4],
+  },
+  iconContainer: {
+    position: 'relative',
+  },
+  productIcon: {
+    width: 100,
+    height: 100,
+    borderRadius: theme.rounding.lg,
+    backgroundColor: theme.colors.surfaceContainer,
+  },
+  iconPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    borderStyle: 'dashed',
+  },
+  iconEditBadge: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    backgroundColor: theme.colors.primary,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.surface,
+  },
+  summaryCard: {
+    marginTop: theme.spacing[4],
+    backgroundColor: theme.colors.surfaceContainerLow,
   },
   productName: {
     fontFamily: theme.typography.fontFamily.display,
@@ -154,51 +350,41 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing[3],
   },
   flagDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     marginTop: 6,
     marginRight: theme.spacing[3],
   },
   flagIngredient: {
-    fontFamily: theme.typography.fontFamily.body,
+    fontFamily: theme.typography.fontFamily.headline,
     fontSize: theme.typography.sizes.bodyLg,
     fontWeight: '700',
     color: theme.colors.onSurface,
-    marginBottom: 2,
   },
   flagText: {
-    flex: 1,
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodyMd,
     color: theme.colors.onSurfaceVariant,
-    lineHeight: 20,
+    marginTop: 2,
   },
   emptyText: {
     fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodyMd,
     color: theme.colors.outline,
+    textAlign: 'center',
+    marginVertical: 20,
   },
   nutrimentsCard: {
-    backgroundColor: theme.colors.surfaceContainerHighest,
+    marginBottom: theme.spacing[4],
   },
   nutrimentGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: theme.spacing[4],
+    gap: theme.spacing[2],
   },
   nutriItem: {
-    width: '45%',
-  },
-  nutriValue: {
-    fontFamily: theme.typography.fontFamily.headline,
-    fontSize: theme.typography.sizes.headlineMd,
-    color: theme.colors.onSurface,
-    fontWeight: '800',
-  },
-  nutriLabel: {
-    fontFamily: theme.typography.fontFamily.body,
-    fontSize: theme.typography.sizes.bodySm,
-    color: theme.colors.onSurfaceVariant,
-    marginTop: 2,
+    width: '48%',
+    marginBottom: theme.spacing[2],
   }
 });

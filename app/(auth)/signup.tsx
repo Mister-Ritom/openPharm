@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Alert, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import auth from '@react-native-firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signInWithCredential, GoogleAuthProvider, sendEmailVerification } from '@react-native-firebase/auth';
+import { getApp } from '@react-native-firebase/app';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
 import { useAnalytics } from '../../src/utils/useAnalytics';
-import firestore from '@react-native-firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from '@react-native-firebase/firestore';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 export default function SignupScreen() {
   const [email, setEmail] = useState('');
@@ -18,21 +20,53 @@ export default function SignupScreen() {
   const handleSignup = async () => {
     if (!email || !password) return Alert.alert('Error', 'Please enter email and password');
     setLoading(true);
+    const authInstance = getAuth(getApp());
+    const db = getFirestore(getApp());
     try {
-      const cred = await auth().createUserWithEmailAndPassword(email, password);
+      const cred = await createUserWithEmailAndPassword(authInstance, email, password);
       
       // Send verification email
-      await cred.user.sendEmailVerification();
+      await sendEmailVerification(cred.user);
       
       // Initialize firestore user document
-      await firestore().collection('users').doc(cred.user.uid).set({
+      await setDoc(doc(db, 'users', cred.user.uid), {
         email: cred.user.email,
-        createdAt: firestore.FieldValue.serverTimestamp(),
+        createdAt: serverTimestamp(),
       });
 
       analytics.trackEvent('user_signup', { method: 'email' });
     } catch (e: any) {
       Alert.alert('Signup Failed', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    const authInstance = getAuth(getApp());
+    const db = getFirestore(getApp());
+    try {
+      const response = await GoogleSignin.signIn();
+      const idToken = response.data?.idToken;
+      if (!idToken) throw new Error('No ID token found');
+      const googleCredential = GoogleAuthProvider.credential(idToken);
+      const cred = await signInWithCredential(authInstance, googleCredential);
+      
+      // Check if user exists in firestore, if not, create
+      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
+      if (!userDoc.exists()) {
+        await setDoc(doc(db, 'users', cred.user.uid), {
+          email: cred.user.email,
+          createdAt: serverTimestamp(),
+          displayName: cred.user.displayName,
+        });
+      }
+      
+      analytics.trackEvent('login_completed', { method: 'google' });
+    } catch (e: any) {
+      analytics.trackEvent('auth_error', { method: 'google', error_code: e.code });
+      Alert.alert('Google Sign-In Error', e.message);
     } finally {
       setLoading(false);
     }
@@ -86,6 +120,19 @@ export default function SignupScreen() {
                 variant="tertiary"
                 onPress={() => router.push('/(auth)/login')}
                 style={{ marginTop: theme.spacing[2] }}
+              />
+
+              <View style={styles.divider}>
+                <View style={styles.line} />
+                <Text style={styles.orText}>OR</Text>
+                <View style={styles.line} />
+              </View>
+
+              <Button
+                title="Continue with Google"
+                variant="secondary"
+                onPress={handleGoogleSignIn}
+                style={{ marginTop: 0 }}
               />
             </View>
           </View>
@@ -142,5 +189,22 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodyLg,
     color: theme.colors.onSurface,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: theme.spacing[2],
+    gap: theme.spacing[4],
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.outlineVariant,
+  },
+  orText: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodySm,
+    color: theme.colors.onSurfaceVariant,
+    fontWeight: '600',
   },
 });

@@ -1,28 +1,45 @@
 import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, ActivityIndicator } from 'react-native';
 import { theme } from '../src/theme/designSystem';
 import { PostHogProvider } from 'posthog-react-native';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { OnboardingProvider, useOnboarding } from '../src/context/OnboardingContext';
+import { configureRevenueCat } from '../src/hooks/useSubscription';
 
 const posthogConfig = {
-  host: 'https://eu.i.posthog.com',
+  host: 'https://pharma.ritom.in',
 };
 
 const POSTHOG_API_KEY = 'phc_IbZDwVYFWvdPa0GMzQ7BELr04LgfS4lXsMuwlPapaMC';
 
 export default function RootLayout() {
+  return (
+    <OnboardingProvider>
+      <LayoutContent />
+    </OnboardingProvider>
+  );
+}
+
+function LayoutContent() {
   const { user, profile, initializing } = useAuth();
+  const { hasOnboarded } = useOnboarding();
   const router = useRouter();
   const segments = useSegments();
-  const [hasOnboarded, setHasOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('onboarding_complete').then((val) => {
-      setHasOnboarded(val === 'true');
+    GoogleSignin.configure({
+      webClientId: '7881873473-rbfurd0g39fioii3uuh9unp9tnct8718.apps.googleusercontent.com',
+      offlineAccess: true,
+      forceCodeForRefreshToken: true,
     });
   }, []);
+
+  // Configure RevenueCat whenever the Firebase auth user changes
+  useEffect(() => {
+    configureRevenueCat(user?.uid);
+  }, [user?.uid]);
 
   useEffect(() => {
     if (initializing || hasOnboarded === null) return;

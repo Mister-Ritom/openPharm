@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Alert, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import auth from '@react-native-firebase/auth';
+import { getAuth, signInWithEmailAndPassword, signInWithPhoneNumber, signInWithCredential, GoogleAuthProvider } from '@react-native-firebase/auth';
+import { getApp } from '@react-native-firebase/app';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
 import { useAnalytics } from '../../src/utils/useAnalytics';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
   const [otp, setOtp] = useState('');
   const [confirm, setConfirm] = useState<any>(null);
   const [method, setMethod] = useState<'email' | 'phone'>('email');
@@ -22,7 +25,7 @@ export default function LoginScreen() {
     if (!email || !password) return Alert.alert('Error', 'Please enter email and password');
     setLoading(true);
     try {
-      await auth().signInWithEmailAndPassword(email, password);
+      await signInWithEmailAndPassword(getAuth(getApp()), email, password);
       analytics.trackEvent('login_completed', { method: 'email' });
     } catch (e: any) {
       analytics.trackEvent('auth_error', { method: 'email', error_code: e.code });
@@ -34,9 +37,10 @@ export default function LoginScreen() {
 
   const handleSendOtp = async () => {
     if (!phone) return Alert.alert('Error', 'Please enter your phone number');
+    const fullPhone = `${countryCode}${phone.replace(/\s+/g, '')}`;
     setLoading(true);
     try {
-      const confirmation = await auth().signInWithPhoneNumber(phone);
+      const confirmation = await signInWithPhoneNumber(getAuth(getApp()), fullPhone);
       setConfirm(confirmation);
       analytics.trackEvent('signup_started', { method: 'phone' });
       Alert.alert('OTP Sent', 'Check your messages for the verification code.');
@@ -65,15 +69,15 @@ export default function LoginScreen() {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
-      // Note: In real production, this requires @react-native-google-signin/google-signin
-      // For now, using standard Firebase Google Auth assuming config is ready
-      // const { idToken } = await GoogleSignin.signIn();
-      // const googleCredential = auth.GoogleAuthProvider.credential(idToken);
-      // await auth().signInWithCredential(googleCredential);
-      // analytics.trackEvent('login_completed', { method: 'google' });
-      Alert.alert('Info', 'Google Sign-In requires native module configuration. Ensure GoogleSignin is initialized.');
+      const response = await GoogleSignin.signIn();
+      const idToken = response.data?.idToken;
+      if (!idToken) throw new Error('No ID token found');
+      const googleCredential = GoogleAuthProvider.credential(idToken);
+      await signInWithCredential(getAuth(getApp()), googleCredential);
+      analytics.trackEvent('login_completed', { method: 'google' });
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      analytics.trackEvent('auth_error', { method: 'google', error_code: e.code });
+      Alert.alert('Google Sign-In Error', e.message);
     } finally {
       setLoading(false);
     }
@@ -144,14 +148,23 @@ export default function LoginScreen() {
                   {!confirm ? (
                     <View style={styles.inputContainer}>
                       <Text style={styles.label}>Phone Number</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="+91 98765 43210"
-                        placeholderTextColor={theme.colors.outline}
-                        keyboardType="phone-pad"
-                        value={phone}
-                        onChangeText={setPhone}
-                      />
+                      <View style={styles.phoneInputRow}>
+                        <TextInput
+                          style={[styles.input, styles.countryCodeInput]}
+                          value={countryCode}
+                          onChangeText={setCountryCode}
+                          placeholder="+91"
+                          keyboardType="phone-pad"
+                        />
+                        <TextInput
+                          style={[styles.input, styles.phoneInput]}
+                          placeholder="98765 43210"
+                          placeholderTextColor={theme.colors.outline}
+                          keyboardType="phone-pad"
+                          value={phone}
+                          onChangeText={setPhone}
+                        />
+                      </View>
                       <Button
                         title="Get OTP"
                         onPress={handleSendOtp}
@@ -286,5 +299,16 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodyLg,
     color: theme.colors.onSurface,
+  },
+  phoneInputRow: {
+    flexDirection: 'row',
+    gap: theme.spacing[2],
+  },
+  countryCodeInput: {
+    width: 80,
+    textAlign: 'center',
+  },
+  phoneInput: {
+    flex: 1,
   },
 });

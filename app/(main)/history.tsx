@@ -4,35 +4,73 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../../src/theme/designSystem';
 import { Card } from '../../src/components/ui/Card';
 import { RatingBadge } from '../../src/components/ui/RatingBadge';
-
-// Mock data
-const HISTORY_MOCK = [
-  { id: '1', name: 'Almond Breeze Unsweetened', brand: 'Blue Diamond', rating: 'A', date: 'Today' },
-  { id: '2', name: 'Oreo Original', brand: 'Nabisco', rating: 'E', date: 'Yesterday' },
-  { id: '3', name: 'Greek Yogurt Plain', brand: 'Chobani', rating: 'A', date: '2 days ago' },
-];
+import { useAuth } from '../../src/hooks/useAuth';
+import { getFirestore, collection, query, orderBy, onSnapshot } from '@react-native-firebase/firestore';
+import { getApp } from '@react-native-firebase/app';
+import { format } from 'date-fns';
 
 export default function HistoryScreen() {
+  const { user } = useAuth();
+  const [history, setHistory] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!user) return;
+
+    const db = getFirestore(getApp());
+    const q = query(
+      collection(db, 'users', user.uid, 'scans'),
+      orderBy('timestamp', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map((docSnap: any) => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      }));
+      setHistory(docs);
+      setLoading(false);
+    }, (error) => {
+      console.error('History fetch error:', error);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, [user]);
+
+  const renderDate = (timestamp: any) => {
+    if (!timestamp) return '';
+    try {
+      const date = timestamp.toDate();
+      return format(date, 'MMM d, h:mm a');
+    } catch (e) {
+      return '';
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
         <Text style={styles.title}>Scan History</Text>
-        <Text style={styles.subtitle}>Your past explorations</Text>
+        <Text style={styles.subtitle}>
+          {history.length > 0 ? 'Your past explorations' : 'No scans yet. Start exploring!'}
+        </Text>
 
         <FlatList
-          data={HISTORY_MOCK}
+          data={history}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <Card style={styles.card} variant="elevated">
               <View style={styles.cardInfo}>
-                <Text style={styles.productName}>{item.name}</Text>
-                <Text style={styles.brandName}>{item.brand}</Text>
-                <Text style={styles.date}>{item.date}</Text>
+                <Text style={styles.productName} numberOfLines={1}>{item.name || 'Unknown Product'}</Text>
+                <Text style={styles.brandName}>{item.brand || 'No Brand'}</Text>
+                <Text style={styles.date}>{renderDate(item.timestamp)}</Text>
               </View>
-              <RatingBadge rating={item.rating as any} />
+              <RatingBadge rating={item.rating || 'N/A'} />
             </Card>
           )}
+          refreshing={loading}
         />
       </View>
     </SafeAreaView>

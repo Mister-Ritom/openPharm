@@ -6,16 +6,25 @@ import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
 import functions from '@react-native-firebase/functions';
+import storage from '@react-native-firebase/storage';
 import { useRouter } from 'expo-router';
 import { useAnalytics } from '../../src/utils/useAnalytics';
+import { useSubscription } from '../../src/hooks/useSubscription';
+import { useScanCount } from '../../src/hooks/useScanCount';
+import { CONFIG } from '../../src/constants/Config';
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
-  const [mode, setMode] = useState<'barcode' | 'nutritionLabel' | 'processing'>('barcode');
+  const [mode, setMode] = useState<'barcode' | 'productPhoto' | 'nutritionLabel' | 'processing'>('barcode');
   const [currentBarcode, setCurrentBarcode] = useState<string | null>(null);
+  const [productPhotoUri, setProductPhotoUri] = useState<string | null>(null);
+
   const cameraRef = useRef<CameraView>(null);
   const router = useRouter();
   const analytics = useAnalytics();
+  
+  const { isPro } = useSubscription();
+  const { count } = useScanCount();
 
   if (!permission) {
     return <View />;
@@ -29,8 +38,25 @@ export default function ScanScreen() {
     );
   }
 
+  const checkLimit = () => {
+    if (!isPro && count >= CONFIG.FREE_SCAN_LIMIT) {
+      Alert.alert(
+        'Scan Limit Reached',
+        `You have reached your daily limit of ${CONFIG.FREE_SCAN_LIMIT} scans. Upgrade to Pro for unlimited access and deep clinical insights.`,
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') }
+        ]
+      );
+      return false;
+    }
+    return true;
+  };
+
   const handleBarcodeScanned = async ({ type, data }: { type: string; data: string }) => {
     if (mode !== 'barcode') return;
+    if (!checkLimit()) return;
+
     setMode('processing');
     setCurrentBarcode(data);
     analytics.trackBarcodeDetected({ barcode: data, format: type });
@@ -39,8 +65,8 @@ export default function ScanScreen() {
       const result = await functions().httpsCallable('onScanProduct')({ barcode: data });
       const resultData = result.data as any;
       if (resultData.found === false) {
-        Alert.alert('Not Found', `We didn't find ${data} in our global base. Please capture the nutritional label.`, [
-          { text: 'OK', onPress: () => setMode('nutritionLabel') }
+        Alert.alert('Not Found', 'This product is not in our database. Please help us by taking two photos:\n1. Front of Product\n2. Nutrition Label', [
+          { text: 'OK', onPress: () => setMode('productPhoto') }
         ]);
       } else {
         router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(result.data) } });
@@ -52,21 +78,56 @@ export default function ScanScreen() {
     }
   };
 
-  const captureNutritionLabel = async () => {
+  const uploadToStorage = async (uri: string, path: string) => {
+    const reference = storage().ref(path);
+    await reference.putFile(uri);
+    return await reference.getDownloadURL();
+  };
+
+  const captureImage = async () => {
     if (!cameraRef.current) return;
-    setMode('processing');
+    if (!checkLimit()) return;
+
     try {
       const photo = await cameraRef.current.takePictureAsync({ base64: false });
       if (!photo) throw new Error('Failed to take photo');
-      
-      const result = await TextRecognition.recognize(photo.uri);
-      
-      const response = await functions().httpsCallable('onOCRSubmit')({ barcode: currentBarcode, ocrText: result.text });
-      router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(response.data) } });
-      setMode('barcode');
-    } catch (e) {
-      Alert.alert('Error', 'Failed to process image');
-      setMode('nutritionLabel');
+
+      if (mode === 'productPhoto') {
+        setProductPhotoUri(photo.uri);
+        setMode('nutritionLabel');
+      } else if (mode === 'nutritionLabel') {
+        setMode('processing');
+        
+        const barcode = currentBarcode || `manual-${Date.now()}`;
+        
+        // 1. Upload images to Storage
+        const labelUrl = await uploadToStorage(photo.uri, `${barcode}/label.jpg`);
+        let productUrl = null;
+        if (productPhotoUri) {
+          productUrl = await uploadToStorage(productPhotoUri, `${barcode}/product.jpg`);
+        }
+
+        // 2. OCR OCR
+        const result = await TextRecognition.recognize(photo.uri);
+        if (!result.text) {
+          throw new Error('No text detected in nutrition label.');
+        }
+
+        // 3. Submit to server
+        const response = await functions().httpsCallable('onOCRSubmit')({ 
+          barcode, 
+          ocrText: result.text,
+          labelImageUrl: labelUrl,
+          productImageUrl: productUrl
+        });
+        
+        router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(response.data) } });
+        setMode('barcode');
+        setProductPhotoUri(null);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to process image');
+      setMode(mode === 'processing' ? 'nutritionLabel' : mode);
     }
   };
 
@@ -91,27 +152,30 @@ export default function ScanScreen() {
             <View style={styles.overlay}>
               <View style={styles.header}>
                 <Text style={styles.overlayTitle}>
-                  {mode === 'barcode' ? 'Scan Product Barcode' : 'Take a photo of the Nutrition Label'}
+                  {mode === 'barcode' ? 'Scan Product Barcode' : 
+                   mode === 'productPhoto' ? 'Take photo of the PRODUCT FRONT' :
+                   'Take photo of the NUTRITION LABEL'}
                 </Text>
               </View>
 
               <View style={[styles.focusFrame, { height: mode === 'barcode' ? frameSize * 0.6 : frameSize }]} />
 
               <View style={styles.footer}>
-                {mode === 'nutritionLabel' && (
-                  <TouchableOpacity style={styles.captureBtn} onPress={captureNutritionLabel}>
+                {(mode === 'nutritionLabel' || mode === 'productPhoto') && (
+                  <TouchableOpacity style={styles.captureBtn} onPress={captureImage}>
                     <View style={styles.captureInner} />
                   </TouchableOpacity>
                 )}
-                {mode === 'nutritionLabel' && (
-                  <Button 
+                <Button 
                     title="Cancel" 
                     variant="tertiary" 
                     textStyle={{ color: '#ffffff' }}
-                    onPress={() => setMode('barcode')}
+                    onPress={() => {
+                      if (mode === 'barcode') router.back();
+                      else setMode('barcode');
+                    }}
                     style={{ marginTop: 24 }}
                   />
-                )}
               </View>
             </View>
           </CameraView>

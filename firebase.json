@@ -5,14 +5,8 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "auth": {
-    "providers": {
-      "emailPassword": true,
-      "googleSignIn": {
-        "oAuthBrandDisplayName": "OpenPharma",
-        "supportEmail": "contact@pharma.ritom.in"
-      }
-    }
+  "storage": {
+    "rules": "storage.rules"
   },
   "functions": {
     "source": "functions"

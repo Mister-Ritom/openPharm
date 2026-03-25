@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
 import { useAnalytics } from '../../src/utils/useAnalytics';
+import { useOnboarding } from '../../src/context/OnboardingContext';
+import { Ionicons } from '@expo/vector-icons';
 
 const PROFILES = [
   { id: 'general', label: 'General Health' },
@@ -19,16 +20,15 @@ const PROFILES = [
 export default function OnboardingStep4() {
   const router = useRouter();
   const analytics = useAnalytics();
+  const { completeOnboarding } = useOnboarding();
   const [selectedProfile, setSelectedProfile] = useState<string>('general');
 
   const handleFinish = async () => {
-    await AsyncStorage.setItem('health_profile', selectedProfile);
-    await AsyncStorage.setItem('onboarding_complete', 'true');
+    await completeOnboarding(selectedProfile);
     
     analytics.trackEvent('onboarding_completed', { profile: selectedProfile });
     
-    // Auth guard in _layout will redirect properly
-    router.replace('/(main)');
+    // Auth guard in _layout will now see hasOnboarded=true and redirect automatically
   };
 
   return (
@@ -51,12 +51,17 @@ export default function OnboardingStep4() {
               ]}
               onPress={() => setSelectedProfile(prof.id)}
             >
-              <Text style={[
-                styles.cardText,
-                selectedProfile === prof.id && styles.cardTextActive
-              ]}>
-                {prof.label}
-              </Text>
+              <View style={styles.cardContent}>
+                <Text style={[
+                  styles.cardText,
+                  selectedProfile === prof.id && styles.cardTextActive
+                ]}>
+                  {prof.label}
+                </Text>
+                {selectedProfile === prof.id && (
+                  <Ionicons name="checkmark-circle" size={24} color={theme.colors.primary} />
+                )}
+              </View>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -80,6 +85,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: theme.spacing[6],
+  },
+  cardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   header: {
     marginTop: theme.spacing[4],

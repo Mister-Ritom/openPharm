@@ -30,6 +30,14 @@
           }
         },
         {
+          "client_id": "7881873473-p4cq51a0k9k6grtd0d6as3snslinm6m2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "me.ritom.openpharm",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
           "client_id": "7881873473-rbfurd0g39fioii3uuh9unp9tnct8718.apps.googleusercontent.com",
           "client_type": 3
         }

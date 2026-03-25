@@ -1,10 +1,12 @@
 import * as functions from 'firebase-functions/v2';
+import * as functionsV1 from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import { analyzeProduct, NutritionData } from './utils/analysisEngine';
 import { parseNutritionOCR } from './utils/ocrParser';
 
 admin.initializeApp();
 const db = admin.firestore();
+db.settings({ ignoreUndefinedProperties: true });
 
 // AI Setup - In production, use defineSecret('GEMINI_API_KEY')
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAdekDS869fxsrEqPdC7oKKh6OXvhRsFjU';
@@ -20,20 +22,9 @@ export const onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, asyn
   if (!uid) throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
 
   await incrementUserScanCount(uid);
-
-  // 1. Check cache
-  const docRef = db.collection('products').doc(barcode);
-  const docSnap = await docRef.get();
-  
   const profile = await getUserProfile(uid);
 
-  if (docSnap.exists) {
-    const rawData = docSnap.data() as NutritionData;
-    const analysis = analyzeProduct(rawData, profile);
-    return { ...rawData, ...analysis, cached: true };
-  }
-
-  // 2. Open Food Facts Lookup
+  // 1. Open Food Facts Lookup (As per USER preference: OFF FIRST)
   try {
     const offResponse = await fetch(`https://world.openfoodfacts.org/api/v2/product/${barcode}.json`);
     const offData = await offResponse.json();
@@ -49,11 +40,14 @@ export const onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, asyn
         nutrients: {
           energy_kcal: nutriments['energy-kcal_100g'] || nutriments['energy-kcal'] || 0,
           protein_g: nutriments['proteins_100g'] || nutriments['proteins'] || 0,
+          carbohydrate_g: nutriments['carbohydrates_100g'] || nutriments['carbohydrates'] || 0,
           fat_g: nutriments['fat_100g'] || nutriments['fat'] || 0,
+          saturated_fat_g: nutriments['saturated-fat_100g'] || nutriments['saturated-fat'] || 0,
+          trans_fat_g: nutriments['trans-fat_100g'] || nutriments['trans-fat'] || 0,
           sugar_g: nutriments['sugars_100g'] || nutriments['sugars'] || 0,
           sodium_mg: (nutriments['sodium_100g'] || 0) * 1000,
         },
-        warnings: [] // Placeholder
+        warnings: []
       };
 
       const analysis = analyzeProduct(rawData, profile);
@@ -61,13 +55,17 @@ export const onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, asyn
       const productRecord = {
         ...rawData,
         barcode,
-        imageUrl: p.image_url || null,
+        productImageUrl: p.image_url || null,
         dataSource: 'OpenFoodFacts',
+        isEditable: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
-      // Save RAW metadata only (analysis is transient/tailored)
-      await docRef.set(productRecord);
+      // Cache locally
+      await db.collection('products').doc(barcode).set(productRecord);
+      
+      // Log history
+      await logToUserHistory(uid, productRecord, analysis.grade);
       
       return { ...productRecord, ...analysis };
     }
@@ -75,13 +73,37 @@ export const onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, asyn
     console.error("OFF API Error:", error);
   }
 
-  return { found: false };
+  // 2. Check local database (for previously saved OCR results)
+  const docRef = db.collection('products').doc(barcode);
+  const docSnap = await docRef.get();
+  
+  if (docSnap.exists) {
+    const rawData = docSnap.data() as NutritionData;
+    const analysis = analyzeProduct(rawData, profile);
+    
+    // Log history even if cached
+    await logToUserHistory(uid, rawData, analysis.grade);
+    
+    return { ...rawData, ...analysis, cached: true };
+  }
+
+  return { found: false, barcode };
 });
 
-export const onOCRSubmit = functions.https.onCall({ timeoutSeconds: 60, memory: '512MiB' }, async (request) => {
-  const { barcode, ocrText } = request.data;
-  const uid = request.auth?.uid;
-  if (!uid) throw new functions.https.HttpsError('unauthenticated', 'User must be logged in.');
+async function logToUserHistory(uid: string, product: any, rating: string) {
+  await db.collection('users').doc(uid).collection('scans').add({
+    barcode: product.barcode || 'manual',
+    name: product.name || 'Unknown Product',
+    brand: product.brand || 'Unknown Brand',
+    rating: rating || 'C',
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+export const onOCRSubmit = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' }).https.onCall(async (data, context) => {
+  const { barcode, ocrText, labelImageUrl, productImageUrl } = data;
+  const uid = context.auth?.uid;
+  if (!uid) throw new functionsV1.https.HttpsError('unauthenticated', 'User must be logged in.');
 
   await incrementUserScanCount(uid);
 
@@ -93,19 +115,33 @@ export const onOCRSubmit = functions.https.onCall({ timeoutSeconds: 60, memory: 
     const productRecord = {
       barcode,
       ...rawData,
+      labelImageUrl: labelImageUrl || null,
+      productImageUrl: productImageUrl || null,
       dataSource: 'OCR+AI',
+      isEditable: true,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    if (barcode) {
+    if (barcode && barcode !== 'manual-entry' && barcode !== 'manual-ocr') {
       // Save RAW metadata
       await db.collection('products').doc(barcode).set(productRecord);
     }
     
+    console.log(`OCR Analysis for ${uid}:`, JSON.stringify(analysis));
+    
+    // Log to user history
+    await db.collection('users').doc(uid).collection('scans').add({
+      barcode: barcode || 'manual-ocr',
+      name: productRecord.name || 'Unknown Product',
+      brand: productRecord.brand || 'Unknown Brand',
+      rating: analysis.grade || 'C',
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    
     return { ...productRecord, ...analysis };
   } catch (e: any) {
     console.error("OCR Parse Error:", e);
-    throw new functions.https.HttpsError('internal', 'Failed to parse nutrition label: ' + e.message);
+    throw new functionsV1.https.HttpsError('internal', 'Failed to parse nutrition label: ' + e.message);
   }
 });
 
@@ -161,7 +197,7 @@ export const onRevenueCatWebhook = functions.https.onRequest(async (req: any, re
   }
 });
 
-export const onUserDeleted = functions.auth.user().onDelete(async (user: any) => {
+export const onUserDeleted = functionsV1.auth.user().onDelete(async (user: any) => {
   const uid = user.uid;
   const userRef = db.collection('users').doc(uid);
   // Recursive delete or delete immediate subcollections: Note, in a real env, use firebase tools specialized function for recursive delete
@@ -190,4 +226,46 @@ export const onProductFlagged = functions.firestore.onDocumentCreated('reports/{
     });
     console.log(`Product ${barcode} flagged for review.`);
   }
+});
+
+export const updateProduct = functionsV1.https.onCall(async (data, context) => {
+  const uid = context.auth?.uid;
+  if (!uid) throw new functionsV1.https.HttpsError('unauthenticated', 'User must be logged in.');
+
+  const { barcode, updates } = data;
+  if (!barcode || !updates) {
+    throw new functionsV1.https.HttpsError('invalid-argument', 'Missing barcode or updates payload.');
+  }
+
+  const docRef = db.collection('products').doc(barcode);
+  const docSnap = await docRef.get();
+
+  if (!docSnap.exists) {
+    throw new functionsV1.https.HttpsError('not-found', 'Product not found.');
+  }
+
+  const product = docSnap.data();
+  if (!product?.isEditable) {
+    throw new functionsV1.https.HttpsError('permission-denied', 'This product cannot be edited by users.');
+  }
+
+  // Safely merge allowed updates
+  const allowedUpdates: any = {};
+  if (updates.name !== undefined) allowedUpdates.name = updates.name;
+  if (updates.brand !== undefined) allowedUpdates.brand = updates.brand;
+  if (updates.productImageUrl !== undefined) allowedUpdates.productImageUrl = updates.productImageUrl;
+  
+  if (updates.nutrients !== undefined) {
+    allowedUpdates.nutrients = {
+      ...(product.nutrients || {}),
+      ...updates.nutrients
+    };
+  }
+
+  allowedUpdates.lastEditedBy = uid;
+  allowedUpdates.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+  await docRef.update(allowedUpdates);
+
+  return { success: true, updatedFields: allowedUpdates };
 });

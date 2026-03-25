@@ -1,0 +1,121 @@
+[
+    {
+        "name": "High-fructose corn syrup",
+        "aliases": ["HFCS", "corn syrup"],
+        "harmfulAbove": "any amount",
+        "harmfulFor": ["general", "diabetic", "pcos", "heart", "child", "pregnant"],
+        "severity": "high",
+        "description": "Highly processed sugar linked to obesity and metabolic diseases.",
+        "sources": ["WHO"]
+    },
+    {
+        "name": "Maltodextrin",
+        "aliases": [],
+        "harmfulAbove": "10g/serving",
+        "harmfulFor": ["diabetic", "pcos"],
+        "severity": "medium",
+        "description": "High glycemic index carbohydrate that spikes blood sugar quickly.",
+        "sources": ["Clinical Protocols"]
+    },
+    {
+        "name": "Aspartame",
+        "aliases": [],
+        "eNumber": "E951",
+        "harmfulFor": ["child", "pku patients"],
+        "severity": "high",
+        "description": "Artificial sweetener with debated neurological effects.",
+        "sources": ["FDA"]
+    },
+    {
+        "name": "Saccharin",
+        "aliases": [],
+        "eNumber": "E954",
+        "harmfulFor": ["pregnant"],
+        "severity": "high",
+        "description": "Artificial sweetener that may cross the placenta.",
+        "sources": ["FDA"]
+    },
+    {
+        "name": "Acesulfame-K",
+        "aliases": ["Acesulfame potassium"],
+        "eNumber": "E950",
+        "harmfulAbove": "15mg/kg body weight/day",
+        "harmfulFor": ["pregnant", "child"],
+        "severity": "medium",
+        "description": "Artificial sweetener often used in combination with sucralose or aspartame.",
+        "sources": ["EFSA"]
+    },
+    {
+        "name": "Partially hydrogenated oils",
+        "aliases": ["trans fat"],
+        "harmfulAbove": "any amount",
+        "harmfulFor": ["general", "heart", "pcos"],
+        "severity": "high",
+        "description": "Artificial trans fats that raise bad cholesterol and lower good cholesterol.",
+        "sources": ["WHO", "AHA"]
+    },
+    {
+        "name": "Palm oil",
+        "aliases": ["palm fruit oil"],
+        "harmfulFor": ["heart"],
+        "severity": "low",
+        "description": "High in saturated fat; also poses significant environmental and sustainability concerns.",
+        "sources": ["WWF", "AHA"]
+    },
+    {
+        "name": "Tartrazine",
+        "aliases": ["FD&C Yellow No. 5"],
+        "eNumber": "E102",
+        "harmfulFor": ["child", "asthma patients"],
+        "severity": "high",
+        "description": "Synthetic lemon yellow azo dye, linked to hyperactivity in children and allergic reactions.",
+        "sources": ["FSA"]
+    },
+    {
+        "name": "Sunset Yellow FCF",
+        "aliases": ["FD&C Yellow 6"],
+        "eNumber": "E110",
+        "harmfulFor": ["child"],
+        "severity": "high",
+        "description": "Synthetic yellow azo dye, may cause hyperactivity in children.",
+        "sources": ["FSA"]
+    },
+    {
+        "name": "Sodium Benzoate",
+        "aliases": [],
+        "eNumber": "E211",
+        "harmfulAbove": "5mg/kg",
+        "harmfulFor": ["child", "general"],
+        "severity": "medium",
+        "description": "Preservative that may form benzene (a carcinogen) when combined with Vitamin C.",
+        "sources": ["FDA"]
+    },
+    {
+        "name": "Monosodium Glutamate",
+        "aliases": ["MSG"],
+        "eNumber": "E621",
+        "harmfulFor": ["general"],
+        "severity": "low",
+        "description": "Flavor enhancer. Safe for most, but may cause sensitivities or headaches in some individuals.",
+        "sources": ["FDA"]
+    },
+    {
+        "name": "Sodium Nitrite",
+        "aliases": [],
+        "eNumber": "E250",
+        "harmfulAbove": "processed meat context",
+        "harmfulFor": ["general", "pregnant", "child"],
+        "severity": "high",
+        "description": "Preservative in processed meats, linked to increased cancer risk (nitrosamines).",
+        "sources": ["IARC"]
+    },
+    {
+        "name": "Sucralose",
+        "aliases": ["Splenda"],
+        "eNumber": "E955",
+        "harmfulFor": ["diabetic", "pcos"],
+        "severity": "medium",
+        "description": "Artificial sweetener that may alter gut microbiome and trigger insulin resistance.",
+        "sources": ["Clinical Studies"]
+    }
+]

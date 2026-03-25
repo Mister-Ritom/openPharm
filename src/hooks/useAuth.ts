@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
+import { FirebaseAuthTypes, getAuth, onAuthStateChanged } from '@react-native-firebase/auth';
+import { getFirestore, onSnapshot, doc } from '@react-native-firebase/firestore';
+import { getApp } from '@react-native-firebase/app';
 
 export function useAuth() {
   const [user, setUser] = useState<FirebaseAuthTypes.User | null>(null);
@@ -8,21 +9,40 @@ export function useAuth() {
   const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    const subscriber = auth().onAuthStateChanged(async (user) => {
+    const app = getApp();
+    const authInstance = getAuth(app);
+    const db = getFirestore(app);
+    let profileUnsubscribe: (() => void) | undefined;
+
+    const authUnsubscribe = onAuthStateChanged(authInstance, (user) => {
       setUser(user);
+      
+      // Clean up previous profile listener if any
+      profileUnsubscribe?.();
+
       if (user) {
-        const doc = await firestore().collection('users').doc(user.uid).get();
-        if (doc.exists) {
-          setProfile(doc.data());
-        } else {
-          setProfile(null);
-        }
+        const userDocRef = doc(db, 'users', user.uid);
+        profileUnsubscribe = onSnapshot(userDocRef, (snap) => {
+          if (snap.exists()) {
+            setProfile(snap.data());
+          } else {
+            setProfile(null);
+          }
+          setInitializing(false);
+        }, (err) => {
+          console.error('Profile snapshot error:', err);
+          setInitializing(false);
+        });
       } else {
         setProfile(null);
+        setInitializing(false);
       }
-      setInitializing(false);
     });
-    return subscriber;
+
+    return () => {
+      authUnsubscribe();
+      profileUnsubscribe?.();
+    };
   }, []);
 
   return { user, profile, initializing };

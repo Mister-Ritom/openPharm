@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import firestore from '@react-native-firebase/firestore';
-import auth from '@react-native-firebase/auth';
+import { getFirestore, doc, setDoc, serverTimestamp } from '@react-native-firebase/firestore';
+import { getAuth } from '@react-native-firebase/auth';
+import { getApp } from '@react-native-firebase/app';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
 import { useAnalytics } from '../../src/utils/useAnalytics';
@@ -28,11 +30,14 @@ export default function SetupProfileScreen() {
   
   const router = useRouter();
   const analytics = useAnalytics();
-  const user = auth().currentUser;
+  const app = getApp();
+  const authInstance = getAuth(app);
+  const db = getFirestore(app);
+  const user = authInstance.currentUser;
 
   const toggleProfile = (id: string) => {
     if (selectedProfiles.includes(id)) {
-      setSelectedProfiles(selectedProfiles.filter(p => p !== id));
+      setSelectedProfiles(selectedProfiles.filter((p: string) => p !== id));
     } else {
       setSelectedProfiles([...selectedProfiles, id]);
     }
@@ -50,20 +55,21 @@ export default function SetupProfileScreen() {
         healthProfiles: selectedProfiles,
         ageRange,
         notifications,
-        createdAt: firestore.FieldValue.serverTimestamp(),
-        lastActiveAt: firestore.FieldValue.serverTimestamp(),
+        createdAt: serverTimestamp(),
+        lastActiveAt: serverTimestamp(),
         uid: user?.uid,
       };
 
-      await firestore().collection('users').doc(user?.uid).set(profileData);
+      if (!user) throw new Error('User not found');
+      await setDoc(doc(db, 'users', user.uid), profileData);
       
       analytics.trackEvent('health_profile_set', { 
         profiles_selected: selectedProfiles, 
         age_range: ageRange 
       });
 
-      // The RootLayout will now pick up the profile and direct to Home or Onboarding
-      router.replace('/(main)');
+      // useAuth hook will pick up the profile change via onSnapshot
+      // and RootLayout will redirect to Home/(main) automatically.
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {
@@ -102,6 +108,11 @@ export default function SetupProfileScreen() {
                 ]}
                 onPress={() => toggleProfile(p.id)}
               >
+                {selectedProfiles.includes(p.id) && (
+                  <View style={styles.tickCorner}>
+                    <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} />
+                  </View>
+                )}
                 <Text style={styles.profileIcon}>{p.icon}</Text>
                 <Text style={[
                   styles.profileLabel,
@@ -138,7 +149,9 @@ export default function SetupProfileScreen() {
             style={styles.checkboxContainer}
             onPress={() => setNotifications(!notifications)}
           >
-            <View style={[styles.checkbox, notifications && styles.checkboxActive]} />
+            <View style={[styles.checkbox, notifications && styles.checkboxActive]}>
+              {notifications && <Ionicons name="checkmark" size={18} color="white" />}
+            </View>
             <Text style={styles.checkboxLabel}>Notify me of harmful products I scan</Text>
           </TouchableOpacity>
         </View>
@@ -214,6 +227,11 @@ const styles = StyleSheet.create({
   profileCardSelected: {
     backgroundColor: theme.colors.primaryContainer,
     borderColor: theme.colors.primary,
+  },
+  tickCorner: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
   },
   profileIcon: {
     fontSize: 32,
