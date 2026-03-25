@@ -9,6 +9,8 @@ import { getApp } from '@react-native-firebase/app';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
 import { useAnalytics } from '../../src/utils/useAnalytics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useOnboarding } from '../../src/context/OnboardingContext';
 
 const HEALTH_PROFILES = [
   { id: 'general', label: 'General', icon: '🍏' },
@@ -35,6 +37,8 @@ export default function SetupProfileScreen() {
   const db = getFirestore(app);
   const user = authInstance.currentUser;
 
+  const { setHasOnboarded } = useOnboarding();
+
   const toggleProfile = (id: string) => {
     if (selectedProfiles.includes(id)) {
       setSelectedProfiles(selectedProfiles.filter((p: string) => p !== id));
@@ -50,26 +54,33 @@ export default function SetupProfileScreen() {
 
     setLoading(true);
     try {
+      if (!user) throw new Error('User not found');
+
       const profileData = {
         displayName,
         healthProfiles: selectedProfiles,
         ageRange,
         notifications,
+        hasOnboarded: true, // Mark as onboarded true since they finished this screen
         createdAt: serverTimestamp(),
         lastActiveAt: serverTimestamp(),
-        uid: user?.uid,
+        uid: user.uid,
       };
 
-      if (!user) throw new Error('User not found');
       await setDoc(doc(db, 'users', user.uid), profileData);
       
+      // Update local storage too so RootLayout sees it immediately
+      await AsyncStorage.setItem('onboarding_complete', 'true');
+      await AsyncStorage.setItem('health_profile', selectedProfiles[0] || 'general');
+      
+      setHasOnboarded(true);
+
       analytics.trackEvent('health_profile_set', { 
         profiles_selected: selectedProfiles, 
         age_range: ageRange 
       });
 
-      // useAuth hook will pick up the profile change via onSnapshot
-      // and RootLayout will redirect to Home/(main) automatically.
+      // No need to redirect manually, RootLayout will handle it via setHasOnboarded and profile update
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {

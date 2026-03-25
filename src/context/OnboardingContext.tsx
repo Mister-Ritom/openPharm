@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 interface OnboardingContextType {
   hasOnboarded: boolean | null;
   completeOnboarding: (profile: string) => Promise<void>;
+  setHasOnboarded: (val: boolean) => void;
 }
 
 const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
@@ -18,13 +19,17 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const completeOnboarding = async (profile: string) => {
-    await AsyncStorage.setItem('health_profile', profile);
-    await AsyncStorage.setItem('onboarding_complete', 'true');
-    setHasOnboarded(true);
+    try {
+      await AsyncStorage.setItem('health_profile', profile);
+      await AsyncStorage.setItem('onboarding_complete', 'true');
+      setHasOnboarded(true);
+    } catch (e) {
+      console.error('Error completing onboarding:', e);
+    }
   };
 
   return (
-    <OnboardingContext.Provider value={{ hasOnboarded, completeOnboarding }}>
+    <OnboardingContext.Provider value={{ hasOnboarded, completeOnboarding, setHasOnboarded }}>
       {children}
     </OnboardingContext.Provider>
   );

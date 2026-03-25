@@ -24,7 +24,7 @@ export default function RootLayout() {
 
 function LayoutContent() {
   const { user, profile, initializing } = useAuth();
-  const { hasOnboarded } = useOnboarding();
+  const { hasOnboarded, setHasOnboarded } = useOnboarding();
   const router = useRouter();
   const segments = useSegments();
 
@@ -54,9 +54,16 @@ function LayoutContent() {
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboardingGroup = segments[0] === '(onboarding)';
 
+    // Sync onboarding status from profile to LocalStorage if needed
+    if (user && profile?.hasOnboarded && !hasOnboarded) {
+      setHasOnboarded(true);
+      return; // Re-run effect with updated state
+    }
+
     if (!user) {
-      if (!inAuthGroup) {
-        router.replace('/(auth)/login');
+      // Visitors: Onboarding is the landing page
+      if (!inOnboardingGroup && !inAuthGroup) {
+        router.replace('/(onboarding)/step1');
       }
     } else {
       // User is logged in
@@ -64,15 +71,21 @@ function LayoutContent() {
       const isVerifying = path.includes('verify-email');
       const isSettingUp = path.includes('setup-profile');
       
+      const userHasOnboarded = hasOnboarded || profile?.hasOnboarded;
+
       if (needsEmailVerification && !isVerifying) {
         router.replace('/(auth)/verify-email');
       } else if (!needsEmailVerification && !profile && !isSettingUp) {
         // Force profile setup if missing
         router.replace('/(auth)/setup-profile');
       } else if (profile && !needsEmailVerification) {
-        if (!hasOnboarded && !inOnboardingGroup) {
-          router.replace('/(onboarding)/step1');
-        } else if (hasOnboarded && (inAuthGroup || inOnboardingGroup || isSettingUp || isVerifying)) {
+        const isProfileComplete = !!profile.displayName && !!profile.healthProfiles && !!profile.ageRange;
+        
+        if (!isProfileComplete) {
+          if (!isSettingUp) {
+            router.replace('/(auth)/setup-profile');
+          }
+        } else if (isProfileComplete && (inAuthGroup || inOnboardingGroup || isSettingUp || isVerifying)) {
           router.replace('/(main)');
         }
       }

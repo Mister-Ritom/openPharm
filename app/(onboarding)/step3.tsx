@@ -26,7 +26,7 @@ export default function OnboardingStep3() {
         <View style={styles.footer}>
           <Button 
             title="Continue" 
-            onPress={() => router.push('/(onboarding)/step4')} 
+            onPress={() => router.push('/(auth)/signup')} 
           />
           <Button 
             title="Back" 

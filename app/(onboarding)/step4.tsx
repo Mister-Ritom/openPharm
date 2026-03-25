@@ -7,6 +7,9 @@ import { Button } from '../../src/components/ui/Button';
 import { useAnalytics } from '../../src/utils/useAnalytics';
 import { useOnboarding } from '../../src/context/OnboardingContext';
 import { Ionicons } from '@expo/vector-icons';
+import { getFirestore, doc, updateDoc, serverTimestamp } from '@react-native-firebase/firestore';
+import { getAuth } from '@react-native-firebase/auth';
+import { getApp } from '@react-native-firebase/app';
 
 const PROFILES = [
   { id: 'general', label: 'General Health' },
@@ -24,11 +27,26 @@ export default function OnboardingStep4() {
   const [selectedProfile, setSelectedProfile] = useState<string>('general');
 
   const handleFinish = async () => {
-    await completeOnboarding(selectedProfile);
-    
-    analytics.trackEvent('onboarding_completed', { profile: selectedProfile });
-    
-    // Auth guard in _layout will now see hasOnboarded=true and redirect automatically
+    try {
+      await completeOnboarding(selectedProfile);
+      
+      const auth = getAuth(getApp());
+      const user = auth.currentUser;
+      const db = getFirestore(getApp());
+
+      if (user) {
+        // Sync to firestore if user is logged in
+        await updateDoc(doc(db, 'users', user.uid), {
+          hasOnboarded: true,
+          primaryGoal: selectedProfile,
+          lastActiveAt: serverTimestamp()
+        });
+      }
+      
+      analytics.trackEvent('onboarding_completed', { profile: selectedProfile });
+    } catch (e) {
+      console.error('Error finishing onboarding:', e);
+    }
   };
 
   return (
