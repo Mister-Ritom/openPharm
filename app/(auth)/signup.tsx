@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Alert, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { getAuth, createUserWithEmailAndPassword, signInWithCredential, GoogleAuthProvider, sendEmailVerification } from '@react-native-firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signInWithPhoneNumber, signInWithCredential, GoogleAuthProvider, sendEmailVerification } from '@react-native-firebase/auth';
 import { getApp } from '@react-native-firebase/app';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
@@ -13,6 +13,11 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 export default function SignupScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
+  const [otp, setOtp] = useState('');
+  const [confirm, setConfirm] = useState<any>(null);
+  const [method, setMethod] = useState<'email' | 'phone'>('email');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const analytics = useAnalytics();
@@ -37,6 +42,48 @@ export default function SignupScreen() {
       analytics.trackEvent('user_signup', { method: 'email' });
     } catch (e: any) {
       Alert.alert('Signup Failed', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendOtp = async () => {
+    if (!phone) return Alert.alert('Error', 'Please enter your phone number');
+    const fullPhone = `${countryCode}${phone.replace(/\s+/g, '')}`;
+    setLoading(true);
+    try {
+      const confirmation = await signInWithPhoneNumber(getAuth(getApp()), fullPhone);
+      setConfirm(confirmation);
+      analytics.trackEvent('signup_started', { method: 'phone' });
+      Alert.alert('OTP Sent', 'Check your messages for the verification code.');
+    } catch (e: any) {
+      analytics.trackEvent('auth_error', { method: 'phone', error_code: e.code });
+      Alert.alert('Error', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otp) return Alert.alert('Error', 'Please enter the OTP');
+    setLoading(true);
+    const db = getFirestore(getApp());
+    try {
+      const cred = await confirm.confirm(otp);
+      
+      // Check if user exists in firestore, if not, create
+      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
+      if (!userDoc.exists()) {
+        await setDoc(doc(db, 'users', cred.user.uid), {
+          phoneNumber: cred.user.phoneNumber,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      analytics.trackEvent('user_signup', { method: 'phone' });
+    } catch (e: any) {
+      analytics.trackEvent('auth_error', { method: 'phone', error_code: e.code });
+      Alert.alert('Verification Failed', 'Invalid code. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -82,38 +129,112 @@ export default function SignupScreen() {
               <Text style={styles.subtitle}>Discover transparency in every bite.</Text>
             </View>
 
-            <View style={styles.form}>
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Email Address</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="name@example.com"
-                  placeholderTextColor={theme.colors.outline}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  value={email}
-                  onChangeText={setEmail}
-                />
-              </View>
-
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Password</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Create a password"
-                  placeholderTextColor={theme.colors.outline}
-                  secureTextEntry
-                  value={password}
-                  onChangeText={setPassword}
-                />
-              </View>
-
-              <Button
-                title="Create Account"
-                onPress={handleSignup}
-                loading={loading}
-                style={{ marginTop: theme.spacing[4] }}
+            <View style={styles.tabContainer}>
+              <Button 
+                title="Email" 
+                onPress={() => setMethod('email')} 
+                variant={method === 'email' ? 'primary' : 'tertiary'}
+                style={styles.tab}
               />
+              <Button 
+                title="Phone" 
+                onPress={() => setMethod('phone')} 
+                variant={method === 'phone' ? 'primary' : 'tertiary'}
+                style={styles.tab}
+              />
+            </View>
+
+            <View style={styles.form}>
+              {method === 'email' ? (
+                <>
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.label}>Email Address</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="name@example.com"
+                      placeholderTextColor={theme.colors.outline}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      value={email}
+                      onChangeText={setEmail}
+                    />
+                  </View>
+
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.label}>Password</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Create a password"
+                      placeholderTextColor={theme.colors.outline}
+                      secureTextEntry
+                      value={password}
+                      onChangeText={setPassword}
+                    />
+                  </View>
+
+                  <Button
+                    title="Create Account"
+                    onPress={handleSignup}
+                    loading={loading}
+                    style={{ marginTop: theme.spacing[4] }}
+                  />
+                </>
+              ) : (
+                <>
+                  {!confirm ? (
+                    <View style={styles.inputContainer}>
+                      <Text style={styles.label}>Phone Number</Text>
+                      <View style={styles.phoneInputRow}>
+                        <TextInput
+                          style={[styles.input, styles.countryCodeInput]}
+                          value={countryCode}
+                          onChangeText={setCountryCode}
+                          placeholder="+91"
+                          keyboardType="phone-pad"
+                        />
+                        <TextInput
+                          style={[styles.input, styles.phoneInput]}
+                          placeholder="98765 43210"
+                          placeholderTextColor={theme.colors.outline}
+                          keyboardType="phone-pad"
+                          value={phone}
+                          onChangeText={setPhone}
+                        />
+                      </View>
+                      <Button
+                        title="Get OTP"
+                        onPress={handleSendOtp}
+                        loading={loading}
+                        style={{ marginTop: theme.spacing[4] }}
+                      />
+                    </View>
+                  ) : (
+                    <View style={styles.inputContainer}>
+                      <Text style={styles.label}>Verification Code</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="123456"
+                        placeholderTextColor={theme.colors.outline}
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        value={otp}
+                        onChangeText={setOtp}
+                      />
+                      <Button
+                        title="Verify OTP"
+                        onPress={handleVerifyOtp}
+                        loading={loading}
+                        style={{ marginTop: theme.spacing[4] }}
+                      />
+                      <Button
+                        title="Resend Code"
+                        variant="tertiary"
+                        onPress={() => setConfirm(null)}
+                      />
+                    </View>
+                  )}
+                </>
+              )}
 
               <Button
                 title="Already have an account? Log in"
@@ -171,7 +292,26 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurfaceVariant,
   },
   form: {
-    gap: theme.spacing[6],
+    gap: theme.spacing[4],
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    gap: theme.spacing[4],
+    marginBottom: theme.spacing[4],
+  },
+  tab: {
+    flex: 1,
+  },
+  phoneInputRow: {
+    flexDirection: 'row',
+    gap: theme.spacing[2],
+  },
+  countryCodeInput: {
+    width: 80,
+    textAlign: 'center',
+  },
+  phoneInput: {
+    flex: 1,
   },
   inputContainer: {
     gap: theme.spacing[2],
