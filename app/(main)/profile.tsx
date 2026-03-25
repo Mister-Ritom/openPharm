@@ -1,0 +1,90 @@
+import React from 'react';
+import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import auth from '@react-native-firebase/auth';
+import { theme } from '../../src/theme/designSystem';
+import { Button } from '../../src/components/ui/Button';
+import { Card } from '../../src/components/ui/Card';
+
+export default function ProfileScreen() {
+  const router = useRouter();
+  const user = auth().currentUser;
+
+  const handleLogout = async () => {
+    try {
+      await auth().signOut();
+    } catch(e) {
+      Alert.alert('Error logging out');
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.title}>Profile</Text>
+        
+        <Card variant="elevated" style={styles.card}>
+          <Text style={styles.label}>Account</Text>
+          <Text style={styles.value}>{user?.email}</Text>
+        </Card>
+
+        <Card variant="elevated" style={styles.card}>
+          <Text style={styles.label}>Subscription</Text>
+          <Text style={styles.value}>Free Plan</Text>
+          <Button 
+            title="Upgrade to Pro" 
+            onPress={() => router.push('/paywall')} 
+            style={{ marginTop: theme.spacing[4] }}
+          />
+        </Card>
+
+        <View style={styles.actions}>
+          <Button title="Health Focus & Customization" variant="secondary" onPress={() => {}} />
+          <Button title="Privacy Policy" variant="secondary" onPress={() => router.push('/(legal)/privacy')} />
+          <Button title="Terms of Service" variant="secondary" onPress={() => router.push('/(legal)/tos')} />
+          <Button title="Log Out" variant="tertiary" onPress={handleLogout} textStyle={{ color: theme.colors.error }} />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+  },
+  container: {
+    padding: theme.spacing[6],
+    paddingBottom: 60,
+  },
+  title: {
+    fontFamily: theme.typography.fontFamily.display,
+    fontSize: theme.typography.sizes.displaySm,
+    color: theme.colors.onSurface,
+    fontWeight: '800',
+    marginBottom: theme.spacing[6],
+  },
+  card: {
+    marginBottom: theme.spacing[4],
+  },
+  label: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodySm,
+    color: theme.colors.outline,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  value: {
+    fontFamily: theme.typography.fontFamily.headline,
+    fontSize: theme.typography.sizes.bodyLg,
+    color: theme.colors.onSurface,
+    fontWeight: '600',
+  },
+  actions: {
+    marginTop: theme.spacing[4],
+    gap: theme.spacing[3],
+  }
+});
