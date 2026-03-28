@@ -16,7 +16,9 @@
       "infoPlist": {
         "NSCameraUsageDescription": "OpenPharma needs access to your camera to scan barcodes and nutrition labels."
       },
-      "associatedDomains": ["applinks:pharma.ritom.in"]
+      "associatedDomains": [
+        "applinks:pharma.ritom.in"
+      ]
     },
     "android": {
       "package": "me.ritom.openpharm",
@@ -25,7 +27,9 @@
         "backgroundColor": "#f7faf8",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "permissions": ["android.permission.CAMERA"],
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -37,7 +41,10 @@
               "pathPrefix": "/"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -47,6 +54,22 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "deploymentTarget": "16.1",
+            "forceStaticLinking": [
+              "RNFBApp",
+              "RNFBAuth",
+              "RNFBFirestore",
+              "RNFBFunctions",
+              "RNFBStorage"
+            ]
+          }
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -62,13 +85,17 @@
       [
         "expo-asset",
         {
-          "assets": ["./assets/images", "./assets/data"]
+          "assets": [
+            "./assets/images",
+            "./assets/data"
+          ]
         }
       ],
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "@react-native-google-signin/google-signin",
-      "expo-localization"
+      "expo-localization",
+      "expo-build-properties"
     ],
     "experiments": {
       "typedRoutes": true,
