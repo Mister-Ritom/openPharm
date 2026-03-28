@@ -10,7 +10,7 @@ export default function PrivacyScreen() {
 
       <Text style={styles.heading}>1. Introduction</Text>
       <Text style={styles.paragraph}>
-        OpenPharma ("we", "our", or "us") is committed to protecting your privacy. This Privacy Policy explains how your personal data is collected, used, and processed when you use our mobile application and services, in compliance with GDPR (EU/UK), CCPA (US), and the DPDP Act 2023 (India).
+        OpenPharma (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) is committed to protecting your privacy. This Privacy Policy explains how your personal data is collected, used, and processed when you use our mobile application and services, in compliance with GDPR (EU/UK), CCPA (US), and the DPDP Act 2023 (India).
       </Text>
 
       <Text style={styles.heading}>2. Information We Collect</Text>
