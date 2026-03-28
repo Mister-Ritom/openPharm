@@ -9,15 +9,14 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "deploymentTarget": "16.1",
       "supportsTablet": true,
       "bundleIdentifier": "me.ritom.openpharm",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSCameraUsageDescription": "OpenPharma needs access to your camera to scan barcodes and nutrition labels."
       },
-      "associatedDomains": [
-        "applinks:pharma.ritom.in"
-      ]
+      "associatedDomains": ["applinks:pharma.ritom.in"]
     },
     "android": {
       "package": "me.ritom.openpharm",
@@ -26,9 +25,7 @@
         "backgroundColor": "#f7faf8",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "permissions": [
-        "android.permission.CAMERA"
-      ],
+      "permissions": ["android.permission.CAMERA"],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -40,10 +37,7 @@
               "pathPrefix": "/"
             }
           ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
+          "category": ["BROWSABLE", "DEFAULT"]
         }
       ]
     },
@@ -65,12 +59,12 @@
           }
         }
       ],
-[
-    "expo-asset",
-    {
-      "assets": ["./assets/images"]
-    }
-  ],
+      [
+        "expo-asset",
+        {
+          "assets": ["./assets/images", "./assets/data"]
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "@react-native-google-signin/google-signin",
