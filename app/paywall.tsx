@@ -142,8 +142,8 @@ export default function PaywallScreen() {
             Subscriptions auto-renew unless canceled at least 24 hours before the current period ends.
           </Text>
           <View style={styles.legalLinks}>
-            <Button variant="tertiary" title="Terms"   onPress={() => router.push('/(legal)/tos')}     textStyle={styles.linkText} />
-            <Button variant="tertiary" title="Privacy" onPress={() => router.push('/(legal)/privacy')} textStyle={styles.linkText} />
+            <Button variant="tertiary" title="Terms"   onPress={() => router.push('/tos')}     textStyle={styles.linkText} />
+            <Button variant="tertiary" title="Privacy" onPress={() => router.push('/privacy')} textStyle={styles.linkText} />
             <Button
               variant="tertiary"
               title="Restore Purchases"

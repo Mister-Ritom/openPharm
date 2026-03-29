@@ -1,18 +1,24 @@
-import { useEffect, useState } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { useAuth } from '../src/hooks/useAuth';
-import { View, ActivityIndicator } from 'react-native';
-import { theme } from '../src/theme/designSystem';
-import { PostHogProvider } from 'posthog-react-native';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import { OnboardingProvider, useOnboarding } from '../src/context/OnboardingContext';
-import { configureRevenueCat, syncRevenueCatUser } from '../src/hooks/useSubscription';
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { PostHogProvider } from "posthog-react-native";
+import { useEffect } from "react";
+import { ActivityIndicator, View } from "react-native";
+import {
+  OnboardingProvider,
+  useOnboarding,
+} from "../src/context/OnboardingContext";
+import { useAuth } from "../src/hooks/useAuth";
+import {
+  configureRevenueCat,
+  syncRevenueCatUser,
+} from "../src/hooks/useSubscription";
+import { theme } from "../src/theme/designSystem";
 
 const posthogConfig = {
-  host: 'https://pharma.ritom.in',
+  host: "https://pharma.ritom.in",
 };
 
-const POSTHOG_API_KEY = 'phc_IbZDwVYFWvdPa0GMzQ7BELr04LgfS4lXsMuwlPapaMC';
+const POSTHOG_API_KEY = "phc_IbZDwVYFWvdPa0GMzQ7BELr04LgfS4lXsMuwlPapaMC";
 
 export default function RootLayout() {
   return (
@@ -30,7 +36,8 @@ function LayoutContent() {
 
   useEffect(() => {
     GoogleSignin.configure({
-      webClientId: '7881873473-rbfurd0g39fioii3uuh9unp9tnct8718.apps.googleusercontent.com',
+      webClientId:
+        "7881873473-rbfurd0g39fioii3uuh9unp9tnct8718.apps.googleusercontent.com",
       offlineAccess: true,
       forceCodeForRefreshToken: true,
     });
@@ -50,9 +57,11 @@ function LayoutContent() {
   useEffect(() => {
     if (initializing || hasOnboarded === null) return;
 
-    const path = segments.join('/');
-    const inAuthGroup = segments[0] === '(auth)';
-    const inOnboardingGroup = segments[0] === '(onboarding)';
+    const path = segments.join("/");
+    const inAuthGroup = segments[0] === "(auth)";
+    const inOnboardingGroup = segments[0] === "(onboarding)";
+    const inMainGroup = segments[0] === "(main)";
+    const inLegalGroup = segments[0] === "(legal)";
 
     // Sync onboarding status from profile to LocalStorage if needed
     if (user && profile?.hasOnboarded && !hasOnboarded) {
@@ -63,38 +72,61 @@ function LayoutContent() {
     if (!user) {
       // Visitors: Onboarding is the landing page
       if (!inOnboardingGroup && !inAuthGroup) {
-        router.replace('/(onboarding)/step1');
+        router.replace("/(onboarding)/step1");
       }
     } else {
       // User is logged in
       const needsEmailVerification = user.email && !user.emailVerified;
-      const isVerifying = path.includes('verify-email');
-      const isSettingUp = path.includes('setup-profile');
-      
+      const isVerifying = path.includes("verify-email");
+      const isSettingUp = path.includes("setup-profile");
+
       const userHasOnboarded = hasOnboarded || profile?.hasOnboarded;
 
       if (needsEmailVerification && !isVerifying) {
-        router.replace('/(auth)/verify-email');
+        router.replace("/(auth)/verify-email");
       } else if (!needsEmailVerification && !profile && !isSettingUp) {
         // Force profile setup if missing
-        router.replace('/(auth)/setup-profile');
+        router.replace("/(auth)/setup-profile");
       } else if (profile && !needsEmailVerification) {
-        const isProfileComplete = !!profile.displayName && !!profile.healthProfiles && !!profile.ageRange;
-        
+        const isProfileComplete =
+          !!profile.displayName &&
+          !!profile.healthProfiles &&
+          !!profile.ageRange;
+
         if (!isProfileComplete) {
           if (!isSettingUp) {
-            router.replace('/(auth)/setup-profile');
+            router.replace("/(auth)/setup-profile");
           }
-        } else if (isProfileComplete && (inAuthGroup || inOnboardingGroup || isSettingUp || isVerifying)) {
-          router.replace('/(main)');
+        } else if (
+          isProfileComplete &&
+          (inAuthGroup || inOnboardingGroup || isSettingUp || isVerifying)
+        ) {
+          if (!inMainGroup && !inLegalGroup) {
+            router.replace("/(main)");
+          }
         }
       }
     }
-  }, [user, profile, initializing, hasOnboarded, segments]);
+  }, [
+    user,
+    profile,
+    initializing,
+    hasOnboarded,
+    segments,
+    setHasOnboarded,
+    router,
+  ]);
 
   if (initializing || hasOnboarded === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.colors.surface, justifyContent: 'center', alignItems: 'center' }}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: theme.colors.surface,
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
         <ActivityIndicator color={theme.colors.primary} size="large" />
       </View>
     );
@@ -102,7 +134,41 @@ function LayoutContent() {
 
   return (
     <PostHogProvider apiKey={POSTHOG_API_KEY} options={posthogConfig}>
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: theme.colors.surface },
+          headerTintColor: theme.colors.onSurface,
+          headerTitleStyle: {
+            fontFamily: theme.typography.fontFamily.headline,
+            fontWeight: "700",
+          },
+          // @ts-ignore - headerBackButtonDisplayMode hides the back title in modern native-stack versions
+          headerBackButtonDisplayMode: "minimal",
+        }}
+      >
+        <Stack.Screen
+          name="(main)"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="(legal)/privacy"
+          options={{
+            headerTitle: "Privacy Policy",
+            headerShown: true,
+          }}
+        />
+        <Stack.Screen
+          name="(legal)/tos"
+          options={{
+            headerTitle: "Terms of Service",
+            headerShown: true,
+          }}
+        />
+      </Stack>
     </PostHogProvider>
   );
 }
