@@ -14,7 +14,8 @@
       "bundleIdentifier": "me.ritom.openpharm",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
-        "NSCameraUsageDescription": "OpenPharma needs access to your camera to scan barcodes and nutrition labels."
+        "NSCameraUsageDescription": "OpenPharma needs access to your camera to scan barcodes and nutrition labels on food products.",
+        "NSPhotoLibraryUsageDescription": "OpenPharma needs access to your photos so you can upload product images for analysis."
       },
       "associatedDomains": [
         "applinks:pharma.ritom.in"
@@ -28,7 +29,12 @@
         "foregroundImage": "./assets/images/icon.png"
       },
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.VIBRATE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "com.android.vending.BILLING"
       ],
       "intentFilters": [
         {
@@ -91,11 +97,23 @@
           ]
         }
       ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow OpenPharma to access your camera to scan barcodes.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-image-picker",
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
-      "@react-native-google-signin/google-signin",
-      "expo-localization",
-      "expo-build-properties"
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "reversedClientId": "com.googleusercontent.apps.7881873473-b7i29gku63is5op9d5mtqgo2p3fuoc7b"
+        }
+      ],
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,
