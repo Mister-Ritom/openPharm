@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateProduct = exports.onProductFlagged = exports.scheduledDailyReset = exports.onUserDeleted = exports.onRevenueCatWebhook = exports.onOCRSubmit = exports.onScanProduct = void 0;
+exports.updateProduct = exports.onProductFlagged = exports.scheduledDailyReset = exports.onUserDeleted = exports.onRevenueCatWebhook = exports.onOCRUpdate = exports.onOCRSubmit = exports.onScanProduct = void 0;
 const functions = __importStar(require("firebase-functions/v2"));
 const functionsV1 = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
@@ -47,6 +47,17 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAdekDS869fxsrEqPdC7o
 async function getUserProfile(uid) {
     const userDoc = await db.collection('users').doc(uid).get();
     return userDoc.exists ? userDoc.data() : null;
+}
+/**
+ * Checks if a nutriments object is effectively empty (all major macros are 0).
+ * Used to flag products from Open Food Facts that exist but have no nutrition data.
+ */
+function isNutritionIncomplete(nutrients) {
+    return ((nutrients.energy_kcal || 0) === 0 &&
+        (nutrients.protein_g || 0) === 0 &&
+        (nutrients.sugar_g || 0) === 0 &&
+        (nutrients.fat_g || 0) === 0 &&
+        (nutrients.carbohydrate_g || 0) === 0);
 }
 exports.onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, async (request) => {
     const { barcode } = request.data;
@@ -69,18 +80,25 @@ exports.onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, async (re
                 nutrients: {
                     energy_kcal: nutriments['energy-kcal_100g'] || nutriments['energy-kcal'] || 0,
                     protein_g: nutriments['proteins_100g'] || nutriments['proteins'] || 0,
+                    carbohydrate_g: nutriments['carbohydrates_100g'] || nutriments['carbohydrates'] || 0,
                     fat_g: nutriments['fat_100g'] || nutriments['fat'] || 0,
+                    saturated_fat_g: nutriments['saturated-fat_100g'] || nutriments['saturated-fat'] || 0,
+                    trans_fat_g: nutriments['trans-fat_100g'] || nutriments['trans-fat'] || 0,
                     sugar_g: nutriments['sugars_100g'] || nutriments['sugars'] || 0,
                     sodium_mg: (nutriments['sodium_100g'] || 0) * 1000,
                 },
                 warnings: []
             };
+            // Detect incomplete nutritional data (product exists in OFF but has no nutrient values)
+            const incomplete = isNutritionIncomplete(rawData.nutrients);
             const analysis = (0, analysisEngine_1.analyzeProduct)(rawData, profile);
             const productRecord = {
                 ...rawData,
                 barcode,
                 productImageUrl: p.image_url || null,
                 dataSource: 'OpenFoodFacts',
+                isEditable: false,
+                isIncomplete: incomplete,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             };
             // Cache locally
@@ -114,8 +132,13 @@ async function logToUserHistory(uid, product, rating) {
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
 }
+/**
+ * onOCRSubmit — Creates a NEW product from a nutrition label photo.
+ * Called when no existing product record exists and user scans a fresh label.
+ * Stores the label photo URL in referenceImages.nutritionLabel (NOT as productImageUrl).
+ */
 exports.onOCRSubmit = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' }).https.onCall(async (data, context) => {
-    const { barcode, ocrText, labelImageUrl, productImageUrl } = data;
+    const { barcode, ocrText, labelImageUrl, imageType = 'nutritionLabel' } = data;
     const uid = context.auth?.uid;
     if (!uid)
         throw new functionsV1.https.HttpsError('unauthenticated', 'User must be logged in.');
@@ -124,13 +147,22 @@ exports.onOCRSubmit = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' 
         const rawData = await (0, ocrParser_1.parseNutritionOCR)(ocrText, GEMINI_API_KEY);
         const profile = await getUserProfile(uid);
         const analysis = (0, analysisEngine_1.analyzeProduct)(rawData, profile);
+        // Build referenceImages map — nutrition labels, ingredient photos, etc.
+        // These are stored separately from productImageUrl which is only set by user's gallery upload.
+        const referenceImages = {};
+        if (labelImageUrl) {
+            referenceImages[imageType] = labelImageUrl;
+        }
         const productRecord = {
             barcode,
             ...rawData,
-            labelImageUrl: labelImageUrl || null,
-            productImageUrl: productImageUrl || null,
+            // referenceImages stores scan reference photos, NOT the product display image
+            referenceImages,
+            // productImageUrl is intentionally NOT set here — only set via explicit user gallery upload
+            productImageUrl: null,
             dataSource: 'OCR+AI',
             isEditable: true,
+            isIncomplete: false,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         if (barcode && barcode !== 'manual-entry' && barcode !== 'manual-ocr') {
@@ -151,6 +183,60 @@ exports.onOCRSubmit = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' 
     catch (e) {
         console.error("OCR Parse Error:", e);
         throw new functionsV1.https.HttpsError('internal', 'Failed to parse nutrition label: ' + e.message);
+    }
+});
+/**
+ * onOCRUpdate — Updates an EXISTING product from a nutrition label photo.
+ * Called when user taps "Something look wrong?" and re-scans the label.
+ * - Merges new nutrition data into the existing product.
+ * - Upgrades dataSource to 'OCR+AI' and sets isEditable: true.
+ * - Clears isIncomplete flag.
+ * - Does NOT increment scan count (it's a correction, not a new scan).
+ */
+exports.onOCRUpdate = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' }).https.onCall(async (data, context) => {
+    const { barcode, ocrText, labelImageUrl, imageType = 'nutritionLabel' } = data;
+    const uid = context.auth?.uid;
+    if (!uid)
+        throw new functionsV1.https.HttpsError('unauthenticated', 'User must be logged in.');
+    if (!barcode) {
+        throw new functionsV1.https.HttpsError('invalid-argument', 'barcode is required for OCR update.');
+    }
+    try {
+        const rawData = await (0, ocrParser_1.parseNutritionOCR)(ocrText, GEMINI_API_KEY);
+        const profile = await getUserProfile(uid);
+        const analysis = (0, analysisEngine_1.analyzeProduct)(rawData, profile);
+        const docRef = db.collection('products').doc(barcode);
+        const existingDoc = await docRef.get();
+        const existingData = existingDoc.exists ? existingDoc.data() : {};
+        // Build updated referenceImages — merge with any existing reference images
+        const existingReferenceImages = existingData?.referenceImages || {};
+        const updatedReferenceImages = { ...existingReferenceImages };
+        if (labelImageUrl) {
+            updatedReferenceImages[imageType] = labelImageUrl;
+        }
+        const updatedProduct = {
+            // Keep existing fields (name, brand, productImageUrl, etc.) unless OCR found better values
+            ...existingData,
+            // Merge in new OCR data
+            ...rawData,
+            barcode,
+            // Reference images updated — NOT productImageUrl
+            referenceImages: updatedReferenceImages,
+            // Upgrade metadata
+            dataSource: 'OCR+AI',
+            isEditable: true,
+            isIncomplete: false,
+            lastEditedBy: uid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        // Upsert (create if didn't exist, update if did)
+        await docRef.set(updatedProduct, { merge: false });
+        console.log(`OCR Update for barcode ${barcode} by ${uid}`);
+        return { ...updatedProduct, ...analysis };
+    }
+    catch (e) {
+        console.error("OCR Update Error:", e);
+        throw new functionsV1.https.HttpsError('internal', 'Failed to update product from nutrition label: ' + e.message);
     }
 });
 async function incrementUserScanCount(uid) {
@@ -260,6 +346,13 @@ exports.updateProduct = functionsV1.https.onCall(async (data, context) => {
         allowedUpdates.nutrients = {
             ...(product.nutrients || {}),
             ...updates.nutrients
+        };
+    }
+    // Allow updating individual reference image slots
+    if (updates.referenceImages !== undefined) {
+        allowedUpdates.referenceImages = {
+            ...(product.referenceImages || {}),
+            ...updates.referenceImages,
         };
     }
     allowedUpdates.lastEditedBy = uid;

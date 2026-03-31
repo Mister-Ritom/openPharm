@@ -13,11 +13,27 @@ import { useSubscription } from '../../src/hooks/useSubscription';
 import { useScanCount } from '../../src/hooks/useScanCount';
 import { CONFIG } from '../../src/constants/Config';
 
+// imageType determines which slot in referenceImages the photo is stored under.
+// This keeps reference photos separate from the user's chosen product display image.
+type ImageType = 'nutritionLabel' | 'ingredients' | 'frontOfPack';
+
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
-  const { initialMode, initialBarcode } = useLocalSearchParams<{ initialMode?: string; initialBarcode?: string }>();
+  const { initialMode, initialBarcode, isUpdateMode, imageType: imageTypeParam } = useLocalSearchParams<{
+    initialMode?: string;
+    initialBarcode?: string;
+    isUpdateMode?: string;
+    imageType?: ImageType;
+  }>();
+
   const [mode, setMode] = useState<'barcode' | 'nutritionLabel' | 'processing'>('barcode');
   const [currentBarcode, setCurrentBarcode] = useState<string | null>(null);
+
+  // isUpdateMode = true means we are correcting an existing product (calls onOCRUpdate)
+  // vs creating a new OCR product (calls onOCRSubmit)
+  const isUpdate = isUpdateMode === 'true';
+  const resolvedImageType: ImageType = (imageTypeParam as ImageType) || 'nutritionLabel';
+
   const [processingStep, setProcessingStep] = useState<string>('');
 
   // Tab screens stay mounted — react to incoming params so the result screen
@@ -89,11 +105,39 @@ export default function ScanScreen() {
     try {
       const result = await functions().httpsCallable('onScanProduct')({ barcode: data });
       const resultData = result.data as any;
+
       if (resultData.found === false) {
-        Alert.alert('Not Found', 'This product is not in our database. Please take a photo of the Nutrition Label to analyze it.', [
-          { text: 'OK', onPress: () => setMode('nutritionLabel') }
-        ]);
+        // Product not found in OFF or local cache — prompt for label scan
+        Alert.alert(
+          'Product Not Found',
+          'This product is not in our database. Please take a photo of the Nutrition Label to analyze it.',
+          [{ text: 'OK', onPress: () => setMode('nutritionLabel') }]
+        );
+      } else if (resultData.isIncomplete) {
+        // Product found in OFF but has no nutritional data — guide user to scan label
+        Alert.alert(
+          'Nutrition Data Missing',
+          'This product was found, but its nutritional data is incomplete. Scan the nutrition label for an accurate health analysis.',
+          [
+            {
+              text: 'Scan Label',
+              onPress: () => {
+                setCurrentBarcode(data);
+                setMode('nutritionLabel');
+              },
+            },
+            {
+              text: 'View Anyway',
+              style: 'cancel',
+              onPress: () => {
+                router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(resultData) } });
+                setMode('barcode');
+              },
+            },
+          ]
+        );
       } else {
+        // Normal successful scan
         router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(result.data) } });
         setMode('barcode');
       }
@@ -103,7 +147,10 @@ export default function ScanScreen() {
     }
   };
 
-  const uploadToStorage = async (uri: string, path: string) => {
+  const uploadToStorage = async (uri: string, barcode: string, imgType: ImageType) => {
+    // Reference images use typed paths so we know their purpose.
+    // productImageUrl is a separate field set only when user explicitly picks a gallery photo.
+    const path = `${barcode}/ref_${imgType}.jpg`;
     const reference = storage().ref(path);
     await reference.putFile(uri);
     return await reference.getDownloadURL();
@@ -111,7 +158,9 @@ export default function ScanScreen() {
 
   const captureImage = async () => {
     if (!cameraRef.current) return;
-    if (!checkLimit()) return;
+
+    // Scan-limit check only for NEW scans, not for corrections
+    if (!isUpdate && !checkLimit()) return;
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ base64: false });
@@ -121,25 +170,41 @@ export default function ScanScreen() {
         setMode('processing');
         const barcode = currentBarcode || `manual-${Date.now()}`;
         
-        // 1. Upload images to Storage
+        // 1. Upload image to Storage under a typed reference path
         setProcessingStep('Securing image upload...');
-        const labelUrl = await uploadToStorage(photo.uri, `${barcode}/label.jpg`);
+        const labelUrl = await uploadToStorage(photo.uri, barcode, resolvedImageType);
 
-        // 2. OCR OCR
+        // 2. On-device OCR
         setProcessingStep('Extracting nutritional text...');
         const result = await TextRecognition.recognize(photo.uri);
         if (!result.text) {
           throw new Error('No text detected in nutrition label.');
         }
 
-        // 3. Submit to server
+        // 3. Submit to server — use onOCRUpdate for corrections, onOCRSubmit for new products
         setProcessingStep('Analyzing data with Clinical AI...');
-        const response = await functions().httpsCallable('onOCRSubmit')({ 
-          barcode, 
-          ocrText: result.text,
-          labelImageUrl: labelUrl,
-          productImageUrl: null
-        });
+
+        let response;
+        if (isUpdate && currentBarcode) {
+          // UPDATE FLOW: Merges OCR data into the existing product record.
+          // - Sets isEditable: true, dataSource: 'OCR+AI', isIncomplete: false
+          // - Stores photo in referenceImages[imageType], NOT productImageUrl
+          response = await functions().httpsCallable('onOCRUpdate')({
+            barcode: currentBarcode,
+            ocrText: result.text,
+            labelImageUrl: labelUrl,
+            imageType: resolvedImageType,
+          });
+        } else {
+          // CREATE FLOW: Creates a new OCR-based product record.
+          // - productImageUrl is NOT set here — only via explicit gallery upload in result screen
+          response = await functions().httpsCallable('onOCRSubmit')({
+            barcode,
+            ocrText: result.text,
+            labelImageUrl: labelUrl,
+            imageType: resolvedImageType,
+          });
+        }
         
         router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(response.data) } });
         setMode('barcode');
@@ -152,13 +217,16 @@ export default function ScanScreen() {
     }
   };
 
+  const processingTitle = isUpdate ? 'Updating Product...' : 'Analyzing...';
+  const processingSubtext = isUpdate ? 'Merging new scan with existing data' : 'Consulting clinical databases';
+
   return (
     <SafeAreaView style={styles.container}>
       {mode === 'processing' ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginBottom: 24 }} />
-          <Text style={styles.title}>Analyzing...</Text>
-          <Text style={styles.text}>{processingStep || 'Consulting clinical databases'}</Text>
+          <Text style={styles.title}>{processingTitle}</Text>
+          <Text style={styles.text}>{processingStep || processingSubtext}</Text>
         </View>
       ) : (
         <View style={styles.camContainer}>
@@ -174,8 +242,17 @@ export default function ScanScreen() {
             <View style={styles.overlay}>
               <View style={styles.header}>
                 <Text style={styles.overlayTitle}>
-                  {mode === 'barcode' ? 'Scan Product Barcode' : 'Take photo of the NUTRITION LABEL'}
+                  {mode === 'barcode'
+                    ? 'Scan Product Barcode'
+                    : isUpdate
+                    ? 'Scan Nutrition Label to Fix Data'
+                    : 'Take photo of the NUTRITION LABEL'}
                 </Text>
+                {isUpdate && (
+                  <Text style={styles.overlaySubtitle}>
+                    This will update the existing product with new nutritional data
+                  </Text>
+                )}
               </View>
 
               <View style={[styles.focusFrame, { height: mode === 'barcode' ? frameSize * 0.6 : frameSize }]} />
@@ -247,6 +324,7 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     paddingHorizontal: 24,
+    gap: 8,
   },
   overlayTitle: {
     color: '#fff',
@@ -254,6 +332,13 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.headlineSm,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  overlaySubtitle: {
+    color: 'rgba(255,255,255,0.7)',
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodyMd,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   focusFrame: {
     width: frameSize,

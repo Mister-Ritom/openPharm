@@ -32,6 +32,7 @@ export default function ResultScreen() {
   const [syncStatus, setSyncStatus] = useState<string>("");
 
   const isEditable = product.isEditable;
+  const isIncomplete = product.isIncomplete === true;
   const rating = product.grade || "C";
   const nutrients = product.nutrients || {};
 
@@ -60,6 +61,11 @@ export default function ResultScreen() {
     }
   };
 
+  /**
+   * Gallery image picker — this is the ONLY way productImageUrl gets set.
+   * Nutrition label scans are stored in referenceImages, never as productImageUrl.
+   * Users explicitly choose a high-quality product photo here.
+   */
   const pickImage = async () => {
     if (!isEditable) return;
 
@@ -81,6 +87,7 @@ export default function ResultScreen() {
 
       try {
         const barcode = product.barcode;
+        // User-chosen product display photo — stored separately from reference scans
         const reference = storage().ref(`${barcode}/product_custom.jpg`);
         await reference.putFile(localUri);
         const url = await reference.getDownloadURL();
@@ -118,9 +125,8 @@ export default function ResultScreen() {
     };
   }, [product.barcode]);
 
-  // Background Queue Processor
+  // Background Queue Processor — 4-second debounce to batch edits
   useEffect(() => {
-    // Prevent saving if there are no pending changes OR if an image upload is actively blocking
     if (Object.keys(pendingUpdates).length === 0 || isUploadingImage) {
       return;
     }
@@ -134,24 +140,24 @@ export default function ResultScreen() {
           updates: pendingUpdates,
         });
 
-        // Clear pending updates on success
         setPendingUpdates({});
         setSyncStatus("All changes saved");
-
-        // Clear status text after a moment
         setTimeout(() => setSyncStatus(""), 2000);
       } catch (e: any) {
         console.error("Background save failed:", e);
         setSyncStatus("Save failed. Retrying in background...");
       }
-    }, 4000); // 4-second debounce to batch consecutive user edits
+    }, 4000);
 
     return () => clearTimeout(timer);
   }, [pendingUpdates, isUploadingImage, product.barcode]);
+
   if (!data) return <View style={styles.safe} />;
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container}>
+        {/* ── Header ── */}
         <View style={styles.header}>
           <Button
             variant="tertiary"
@@ -169,8 +175,52 @@ export default function ResultScreen() {
           </View>
         </View>
 
+        {/* ── Incomplete Data Warning ── */}
+        {isIncomplete && (
+          <TouchableOpacity
+            style={styles.incompleteBanner}
+            activeOpacity={0.75}
+            onPress={() =>
+              router.push({
+                pathname: "/(main)/scan",
+                params: {
+                  initialMode: "nutritionLabel",
+                  initialBarcode: product.barcode,
+                  isUpdateMode: "true",
+                },
+              })
+            }
+          >
+            <View style={styles.incompleteBannerIconWrap}>
+              <Ionicons
+                name="warning-outline"
+                size={22}
+                color={theme.colors.error}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.incompleteBannerTitle}>
+                Nutrition Data Incomplete
+              </Text>
+              <Text style={styles.incompleteBannerSub}>
+                Tap to scan the nutrition label for an accurate analysis
+              </Text>
+            </View>
+            <Ionicons
+              name="camera-outline"
+              size={20}
+              color={theme.colors.error}
+            />
+          </TouchableOpacity>
+        )}
+
+        {/* ── Hero Section ── */}
         <View style={styles.heroSection}>
           <View style={styles.productIconRow}>
+            {/* 
+              Product image: only set when user explicitly taps this and picks from gallery.
+              Nutrition label scans are stored in product.referenceImages — never here.
+            */}
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={pickImage}
@@ -221,13 +271,16 @@ export default function ResultScreen() {
 
           <Card variant="elevated" style={styles.summaryCard}>
             <Text style={styles.analysisSummary}>
-              {product.warnings && product.warnings.length > 0
+              {isIncomplete
+                ? "Nutritional data is missing — scan the label above for an accurate health analysis."
+                : product.warnings && product.warnings.length > 0
                 ? `This product has ${product.warnings.length} flags based on your health profile.`
                 : "This product looks safe for your health profile!"}
             </Text>
           </Card>
         </View>
 
+        {/* ── Tailored Warnings ── */}
         <Card variant="elevated" style={styles.flagsCard}>
           <Text style={styles.sectionTitle}>Tailored Warnings</Text>
           {product.warnings && product.warnings.length > 0 ? (
@@ -254,11 +307,14 @@ export default function ResultScreen() {
             ))
           ) : (
             <Text style={styles.emptyText}>
-              No major flags detected based on your active health profile.
+              {isIncomplete
+                ? "Scan the nutrition label to see warnings."
+                : "No major flags detected based on your active health profile."}
             </Text>
           )}
         </Card>
 
+        {/* ── Nutrition Details ── */}
         <Card style={styles.nutrimentsCard}>
           <Text style={styles.sectionTitle}>Nutrition Details (per 100g)</Text>
           <View style={styles.nutrimentGrid}>
@@ -328,7 +384,12 @@ export default function ResultScreen() {
           </View>
         </Card>
 
-        {/* Fix bad data banner */}
+        {/* ── Fix Data Banner ── */}
+        {/*
+          "Something look wrong?" — now correctly calls onOCRUpdate via isUpdateMode param.
+          This updates the existing product record (setting isEditable: true, dataSource: OCR+AI)
+          instead of creating a new one.
+        */}
         <TouchableOpacity
           style={styles.fixBanner}
           activeOpacity={0.75}
@@ -338,12 +399,17 @@ export default function ResultScreen() {
               params: {
                 initialMode: "nutritionLabel",
                 initialBarcode: product.barcode,
+                isUpdateMode: "true",
               },
             })
           }
         >
           <View style={styles.fixBannerIconWrap}>
-            <Ionicons name="camera-outline" size={22} color={theme.colors.primary} />
+            <Ionicons
+              name="camera-outline"
+              size={22}
+              color={theme.colors.primary}
+            />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.fixBannerTitle}>Something look wrong?</Text>
@@ -351,7 +417,11 @@ export default function ResultScreen() {
               Scan the nutrition label to fix and update the data
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.outline} />
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={theme.colors.outline}
+          />
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -389,6 +459,40 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontStyle: "italic",
   },
+  // ── Incomplete Data Banner ──
+  incompleteBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+    backgroundColor: "#FFF3F3",
+    borderWidth: 1.5,
+    borderColor: theme.colors.error,
+    borderRadius: theme.rounding.lg,
+    paddingVertical: theme.spacing[4],
+    paddingHorizontal: theme.spacing[4],
+    marginBottom: theme.spacing[5],
+  },
+  incompleteBannerIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.error + "18",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  incompleteBannerTitle: {
+    fontFamily: theme.typography.fontFamily.headline,
+    fontSize: theme.typography.sizes.bodyLg,
+    fontWeight: "700",
+    color: theme.colors.error,
+  },
+  incompleteBannerSub: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodySm,
+    color: theme.colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  // ── Hero ──
   heroSection: {
     marginBottom: theme.spacing[8],
   },
@@ -430,25 +534,13 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing[4],
     backgroundColor: theme.colors.surfaceContainerLow,
   },
-  productName: {
-    fontFamily: theme.typography.fontFamily.display,
-    fontSize: theme.typography.sizes.displaySm,
-    color: theme.colors.onSurface,
-    fontWeight: "800",
-    paddingRight: theme.spacing[4],
-  },
-  brandName: {
-    fontFamily: theme.typography.fontFamily.body,
-    fontSize: theme.typography.sizes.bodyLg,
-    color: theme.colors.onSurfaceVariant,
-    marginTop: 4,
-  },
   analysisSummary: {
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodyLg,
     color: theme.colors.onSurface,
     lineHeight: 28,
   },
+  // ── Warnings ──
   flagsCard: {
     marginBottom: theme.spacing[4],
   },
@@ -490,6 +582,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginVertical: 20,
   },
+  // ── Nutrients ──
   nutrimentsCard: {
     marginBottom: theme.spacing[4],
   },
@@ -502,6 +595,7 @@ const styles = StyleSheet.create({
     width: "48%",
     marginBottom: theme.spacing[2],
   },
+  // ── Fix Data Banner ──
   fixBanner: {
     flexDirection: "row",
     alignItems: "center",

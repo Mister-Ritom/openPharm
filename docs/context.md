@@ -170,10 +170,11 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 | File | Tab | Purpose |
 |------|-----|---------|
 | `index.tsx` | Home | Greeting, upgrade banner (free users), Scan CTA, history shortcut. Shows `remainingScans` from `useScanCount`. |
-| `scan.tsx` | Scan | Camera view. Mode: `'barcode'` → auto-scan EAN13/UPC → calls `onScanProduct` Cloud Function. Mode: `'nutritionLabel'` → capture photo → OCR → calls `onOCRSubmit` Cloud Function. Checks daily scan limit before proceeding. |
+| `scan.tsx` | Scan | Camera view. **Mode: `'barcode'`** → auto-scan EAN13/UPC → calls `onScanProduct` Cloud Function. Checks `isIncomplete` flag on result — if true, shows alert prompting nutrition label scan. **Mode: `'nutritionLabel'`** → capture photo → OCR → calls `onOCRSubmit` (new product) or `onOCRUpdate` (correction). Checks daily scan limit before NEW scans; corrections skip the limit check. Accepts `isUpdateMode: 'true'` and `imageType` params. |
 | `history.tsx` | History | Real-time FlatList of `users/{uid}/scans` ordered by `timestamp desc`. Shows product name, brand, rating badge, date. |
 | `profile.tsx` | Profile | Shows email, subscription status, links to legal pages, Upgrade CTA, Logout. |
-| `result.tsx` | Hidden (no tab) | Receives product data via router params (`data` as JSON string). Shows grade badge, warnings, editable nutrient fields. Implements **optimistic UI + background debounced save** (4s debounce) via `updateProduct` Cloud Function. Flushes pending updates on unmount. |
+| `result.tsx` | Hidden (no tab) | Receives product data via router params (`data` as JSON string). Shows grade badge, warnings, editable nutrient fields. **If `product.isIncomplete === true`**: shows a red warning banner at top prompting label scan (navigates to `scan.tsx` with `isUpdateMode: 'true'`). **"Something look wrong?"** banner now passes `isUpdateMode: 'true'` so the re-scan calls `onOCRUpdate` (updates existing product) instead of creating a new one. Implements **optimistic UI + background debounced save** (4s debounce) via `updateProduct` Cloud Function. **Product image** (`productImageUrl`) is only set when user explicitly picks from gallery — never from OCR flows. Flushes pending updates on unmount. |
+
 
 ### Root-level modal screens
 
@@ -197,16 +198,29 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 **Barcode scan path:**
 1. User scans barcode → `scan.tsx` calls `onScanProduct` Cloud Function with `{ barcode }`
 2. Function hits **Open Food Facts API** first (`https://world.openfoodfacts.org/api/v2/product/{barcode}.json`)
-3. If found: builds `NutritionData`, runs `analyzeProduct()`, caches in Firestore `/products/{barcode}`, logs to `/users/{uid}/scans`
-4. If not found: checks local Firestore cache `/products/{barcode}`
-5. If still not found: returns `{ found: false }` → UI prompts user to switch to nutrition label mode
+3. If found: builds `NutritionData`, checks if all major nutrients are zero → sets `isIncomplete: true` if so. Runs `analyzeProduct()`, caches in Firestore `/products/{barcode}`, logs to `/users/{uid}/scans`
+4. If `isIncomplete`: UI shows **"Nutrition Data Missing"** alert with options "Scan Label" (switches to label mode) or "View Anyway" (proceeds to result with warning banner visible)
+5. If not found in OFF: checks local Firestore cache `/products/{barcode}`
+6. If still not found: returns `{ found: false }` → UI prompts user to switch to nutrition label mode
 
-**OCR / Nutrition label path:**
+**OCR / Nutrition label path (new product):**
 1. User takes photo → on-device OCR via `@react-native-ml-kit/text-recognition`
-2. Photo uploaded to Firebase Storage at `{barcode}/label.jpg`
-3. `onOCRSubmit` Cloud Function called with `{ barcode, ocrText, labelImageUrl }`
+2. Photo uploaded to Firebase Storage at `{barcode}/ref_{imageType}.jpg` (e.g. `ref_nutritionLabel.jpg`)
+3. `onOCRSubmit` Cloud Function called with `{ barcode, ocrText, labelImageUrl, imageType }`
 4. Server-side: `parseNutritionOCR(ocrText, GEMINI_API_KEY)` refines OCR with Gemini AI
-5. Runs `analyzeProduct()`, saves with `isEditable: true`, logs scan
+5. Runs `analyzeProduct()`, saves with `isEditable: true`, `isIncomplete: false`
+6. Photo URL stored in `referenceImages[imageType]` — **not** `productImageUrl`
+7. Logs scan to history
+
+**OCR correction path (existing product):**
+1. User taps **"Something look wrong?"** or the incomplete-data banner in `result.tsx`
+2. `scan.tsx` opens with `isUpdateMode: 'true'` + `initialBarcode` pre-filled
+3. User takes photo → same OCR flow
+4. `onOCRUpdate` Cloud Function called (does NOT increment scan count)
+5. Merges new nutrition data into the existing `/products/{barcode}` document
+6. Forces `isEditable: true`, `dataSource: 'OCR+AI'`, `isIncomplete: false`
+7. Merges `referenceImages[imageType]` without replacing other reference photos
+8. Returns fully updated product → `result.tsx` loads with fresh data and edit fields unlocked
 
 ### Rating System
 
@@ -322,6 +336,9 @@ Common events tracked:
 2. **Stylesheet convention**: all styles are via `StyleSheet.create({...})` at the bottom of the file.
 3. **No global state management** (Zustand store dir is empty); local state + hooks cover everything.
 4. **Cloud Functions are called from the client via `functions().httpsCallable('functionName')(data)`** — never direct Firestore writes for business-critical ops.
-5. **`isEditable` flag**: Products from OpenFoodFacts have `isEditable: false`. Products created via OCR have `isEditable: true`. Only editable products can be updated via `updateProduct` function.
-6. **Function from `app/_layout.tsx`**: `configureRevenueCat()` is called once on mount; `syncRevenueCatUser(uid)` is called whenever the auth user changes. In `__DEV__` mode, `RC_TEST_KEY` is used.
-7. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.
+5. **`isEditable` flag**: Products from OpenFoodFacts have `isEditable: false`. Products created via OCR (`onOCRSubmit`) or corrected via re-scan (`onOCRUpdate`) have `isEditable: true`. Only editable products can be updated via `updateProduct` function.
+6. **`isIncomplete` flag**: Products from OpenFoodFacts where all major nutrients are 0 get `isIncomplete: true`. The result screen shows a red warning banner, and `scan.tsx` shows an alert during the barcode scan flow.
+7. **`productImageUrl` vs `referenceImages`**: `productImageUrl` is ONLY set when the user explicitly picks a photo from their gallery in `result.tsx`. Nutrition label photos taken during OCR scans are stored in `product.referenceImages` (e.g. `referenceImages.nutritionLabel`) and in Firebase Storage as `{barcode}/ref_{imageType}.jpg`. They are never set as the product display image.
+8. **`onOCRUpdate` vs `onOCRSubmit`**: `onOCRUpdate` is used for corrections to existing products (does not count against scan limit). `onOCRSubmit` creates a new product record. Both are triggered from `scan.tsx`, routed by the `isUpdateMode` param.
+9. **Function from `app/_layout.tsx`**: `configureRevenueCat()` is called once on mount; `syncRevenueCatUser(uid)` is called whenever the auth user changes. In `__DEV__` mode, `RC_TEST_KEY` is used.
+10. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.

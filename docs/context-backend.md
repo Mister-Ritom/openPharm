@@ -94,7 +94,7 @@ Written by `onRevenueCatWebhook` Cloud Function. Mirrors RevenueCat subscription
 
 ### `/products/{barcode}`
 
-Product data cache. Populated by `onScanProduct` (OpenFoodFacts) or `onOCRSubmit` (OCR).
+Product data cache. Populated by `onScanProduct` (OpenFoodFacts), `onOCRSubmit` (new OCR product), or `onOCRUpdate` (re-scan correction).
 
 ```ts
 {
@@ -113,12 +113,21 @@ Product data cache. Populated by `onScanProduct` (OpenFoodFacts) or `onOCRSubmit
     sodium_mg: number,
   },
   warnings: any[],             // Populated by analyzeProduct()
-  productImageUrl?: string,    // From OpenFoodFacts or user-uploaded to Storage
-  labelImageUrl?: string,      // Only for OCR submissions
+  productImageUrl?: string,    // ONLY set when user explicitly picks from gallery in result screen.
+                               // Never set by OCR or barcode scan flows.
+  referenceImages?: {          // Map of reference scan photos for debugging/review.
+    nutritionLabel?: string,   // URL of nutrition panel photo (from OCR scans).
+    ingredients?: string,      // URL of ingredients panel photo.
+    frontOfPack?: string,      // URL of front-of-pack reference photo.
+  },
+  // Deprecated — use referenceImages.nutritionLabel instead:
+  labelImageUrl?: string,
   dataSource: 'OpenFoodFacts' | 'OCR+AI',
-  isEditable: boolean,         // false for OFF products, true for OCR products
+  isEditable: boolean,         // false for OFF products, true for OCR/corrected products.
+  isIncomplete: boolean,       // true when OFF returned the product but all major nutrients are 0.
+                               // Prompts user to scan the nutrition label.
   flaggedForReview?: boolean,  // Set if 3+ reports exist for this barcode
-  lastEditedBy?: string,       // UID of last user to edit (set by updateProduct function)
+  lastEditedBy?: string,       // UID of last user to edit
   createdAt: Timestamp,
   updatedAt?: Timestamp,
 }
@@ -169,9 +178,13 @@ File: `firestore.rules`
 
 **Storage structure** (by convention, not enforced by rules currently):
 ```
-{barcode}/label.jpg          ← Nutrition label photo (uploaded by scan.tsx before OCR)
-{barcode}/product_custom.jpg ← User-uploaded product front photo (from result.tsx)
+{barcode}/ref_nutritionLabel.jpg  ← Nutrition label reference photo (uploaded during OCR scan)
+{barcode}/ref_ingredients.jpg     ← Ingredients panel reference photo
+{barcode}/ref_frontOfPack.jpg     ← Front-of-pack reference photo
+{barcode}/product_custom.jpg      ← User-chosen product display photo (from gallery in result screen)
 ```
+
+**Important distinction**: `ref_*.jpg` files are reference photos for debugging/review and are stored in `product.referenceImages`. They are **never** set as `productImageUrl`. Only `product_custom.jpg` gets linked to `productImageUrl`, and only when the user explicitly taps the product image icon and picks from their gallery.
 
 Uploads are done from the client using `storage().ref(path).putFile(localUri)`.
 
@@ -201,7 +214,7 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 
 ### `onOCRSubmit` — v1 HTTPS Callable
 
-**Trigger**: `functions().httpsCallable('onOCRSubmit')({ barcode, ocrText, labelImageUrl, productImageUrl })`
+**Trigger**: `functions().httpsCallable('onOCRSubmit')({ barcode, ocrText, labelImageUrl, imageType? })`
 **Auth**: Required
 **Runtime**: 60s timeout, 512MB memory
 
@@ -210,11 +223,35 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 2. Call `parseNutritionOCR(ocrText, GEMINI_API_KEY)` — uses Gemini API key for AI-enhanced parsing
 3. Get user profile for personalized analysis
 4. Run `analyzeProduct(rawData, profile)`
-5. Save product with `isEditable: true`
-6. Log to `/users/{uid}/scans`
-7. Return merged product + analysis
+5. Save product with `isEditable: true`, `isIncomplete: false`, `productImageUrl: null`
+6. Stores label photo URL in `referenceImages[imageType]` (default: `nutritionLabel`) — **not** `productImageUrl`
+7. Log to `/users/{uid}/scans`
+8. Return merged product + analysis
 
 **Gemini key**: `process.env.GEMINI_API_KEY` (should be a Firebase Secret in production) — currently has a fallback hardcoded key in source.
+
+---
+
+### `onOCRUpdate` — v1 HTTPS Callable
+
+**Trigger**: `functions().httpsCallable('onOCRUpdate')({ barcode, ocrText, labelImageUrl, imageType? })`
+**Auth**: Required
+**Runtime**: 60s timeout, 512MB memory
+**Purpose**: Corrects an existing product by merging new OCR data into it. Called when user taps "Something look wrong?" in `result.tsx`.
+
+**Key differences from `onOCRSubmit`**:
+- Does **NOT** increment the usage counter (correction, not a new scan)
+- Looks up the existing product document and merges into it
+- Forces `isEditable: true`, `dataSource: 'OCR+AI'`, `isIncomplete: false` regardless of original
+- Preserves `productImageUrl` from the existing record
+- Merges `referenceImages` map rather than replacing it
+
+**Flow**:
+1. Parse OCR text via `parseNutritionOCR()`
+2. Fetch existing product from Firestore
+3. Merge new nutrient data + metadata into the existing doc
+4. Update `referenceImages[imageType]` with new photo URL
+5. Return fully updated product + fresh analysis
 
 ---
 
@@ -222,13 +259,13 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 
 **Trigger**: `functions().httpsCallable('updateProduct')({ barcode, updates })`
 **Auth**: Required
-**Purpose**: Lets users edit OCR-sourced products (name, brand, productImageUrl, nutrients)
+**Purpose**: Lets users edit OCR-sourced products (name, brand, productImageUrl, nutrients, referenceImages)
 
 **Guards**:
 - Product must exist in Firestore
 - Product must have `isEditable: true`
 
-**Allowed update fields**: `name`, `brand`, `productImageUrl`, `nutrients` (merged, not replaced)
+**Allowed update fields**: `name`, `brand`, `productImageUrl`, `nutrients` (merged, not replaced), `referenceImages` (merged, not replaced)
 
 **Client-side usage pattern** (in `result.tsx`):
 - Changes are queued in `pendingUpdates` state
@@ -311,7 +348,35 @@ Defined in `firestore.indexes.json`. Key indexes relevant to app queries:
 
 | Secret/Key | Where | Notes |
 |------------|-------|-------|
-| `GEMINI_API_KEY` | Cloud Function env | Should use `defineSecret()` in v2 functions in production |
+| `GEMINI_API_KEY` | Firebase Secrets | Securely set via `firebase functions:secrets:set` |
+
+---
+
+## Deployment & Secrets
+
+### Set a Secret
+Securely store the Gemini API key in Google Cloud Secret Manager (via Firebase):
+```bash
+firebase functions:secrets:set GEMINI_API_KEY
+```
+
+### Deployment
+To build and deploy all functions:
+```bash
+cd functions && npm run build && firebase deploy --only functions
+```
+
+### Accessing Secrets in Code
+Secrets must be explicitly requested in the function configuration to be available in `process.env`:
+```ts
+export const onOCRSubmit = functionsV1.runWith({ 
+  secrets: ['GEMINI_API_KEY']
+}).https.onCall(async (data, context) => {
+  const apiKey = process.env.GEMINI_API_KEY; // now available
+  // ...
+});
+```
+
 | RevenueCat iOS key | Hardcoded in `useSubscription.ts` | Public SDK key, safe to be in client code |
 | RevenueCat Android key | Hardcoded in `useSubscription.ts` | Public SDK key |
 | PostHog API key | Hardcoded in `app/_layout.tsx` | Public key |
