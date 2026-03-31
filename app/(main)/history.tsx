@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, StyleSheet, FlatList } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../../src/theme/designSystem';
 import { Card } from '../../src/components/ui/Card';
 import { RatingBadge } from '../../src/components/ui/RatingBadge';
@@ -49,9 +48,8 @@ export default function HistoryScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.safe}>
       <View style={styles.container}>
-        <Text style={styles.title}>Scan History</Text>
         <Text style={styles.subtitle}>
           {history.length > 0 ? 'Your past explorations' : 'No scans yet. Start exploring!'}
         </Text>
@@ -60,6 +58,7 @@ export default function HistoryScreen() {
           data={history}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
             <Card style={styles.card} variant="elevated">
               <View style={styles.cardInfo}>
@@ -73,7 +72,7 @@ export default function HistoryScreen() {
           refreshing={loading}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 

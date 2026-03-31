@@ -140,7 +140,10 @@ export const onOCRSubmit = functionsV1.runWith({
   await incrementUserScanCount(uid);
 
   try {
-    const rawData = await parseNutritionOCR(ocrText, GEMINI_API_KEY.value());
+    const rawData = await parseNutritionOCR(ocrText, labelImageUrl, GEMINI_API_KEY.value(), data.useAiOnly ?? false);
+    if (rawData === 'failed') {
+      throw new functionsV1.https.HttpsError('invalid-argument', 'Image does not contain valid nutrition data. Please try again.');
+    }
     const profile = await getUserProfile(uid);
     const analysis = analyzeProduct(rawData, profile);
 
@@ -209,7 +212,10 @@ export const onOCRUpdate = functionsV1.runWith({
   }
 
   try {
-    const rawData = await parseNutritionOCR(ocrText, GEMINI_API_KEY.value());
+    const rawData = await parseNutritionOCR(ocrText, labelImageUrl, GEMINI_API_KEY.value(), data.useAiOnly ?? false);
+    if (rawData === 'failed') {
+      throw new functionsV1.https.HttpsError('invalid-argument', 'Image does not contain valid nutrition data. Please try again.');
+    }
     const profile = await getUserProfile(uid);
     const analysis = analyzeProduct(rawData, profile);
 

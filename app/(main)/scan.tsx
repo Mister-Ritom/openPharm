@@ -167,53 +167,76 @@ export default function ScanScreen() {
       if (!photo) throw new Error('Failed to take photo');
 
       if (mode === 'nutritionLabel') {
-        setMode('processing');
         const barcode = currentBarcode || `manual-${Date.now()}`;
         
-        // 1. Upload image to Storage under a typed reference path
-        setProcessingStep('Securing image upload...');
-        const labelUrl = await uploadToStorage(photo.uri, barcode, resolvedImageType);
+        const runUploadAndSubmit = async (useAiOnly: boolean) => {
+          try {
+            setMode('processing');
+            // 1. Upload image to Storage under a typed reference path
+            setProcessingStep('Securing image upload...');
+            const labelUrl = await uploadToStorage(photo.uri, barcode, resolvedImageType);
 
-        // 2. On-device OCR
-        setProcessingStep('Extracting nutritional text...');
-        const result = await TextRecognition.recognize(photo.uri);
-        if (!result.text) {
-          throw new Error('No text detected in nutrition label.');
-        }
+            let extractedText = '';
+            // 2. On-device OCR (only if not AI Only)
+            if (!useAiOnly) {
+              setProcessingStep('Extracting nutritional text...');
+              const result = await TextRecognition.recognize(photo.uri);
+              if (!result.text) {
+                throw new Error('No text detected in nutrition label.');
+              }
+              extractedText = result.text;
+            }
 
-        // 3. Submit to server — use onOCRUpdate for corrections, onOCRSubmit for new products
-        setProcessingStep('Analyzing data with Clinical AI...');
+            // 3. Submit to server — use onOCRUpdate for corrections, onOCRSubmit for new products
+            setProcessingStep('Analyzing data with Clinical AI...');
 
-        let response;
-        if (isUpdate && currentBarcode) {
-          // UPDATE FLOW: Merges OCR data into the existing product record.
-          // - Sets isEditable: true, dataSource: 'OCR+AI', isIncomplete: false
-          // - Stores photo in referenceImages[imageType], NOT productImageUrl
-          response = await functions().httpsCallable('onOCRUpdate')({
-            barcode: currentBarcode,
-            ocrText: result.text,
-            labelImageUrl: labelUrl,
-            imageType: resolvedImageType,
-          });
+            let response;
+            if (isUpdate && currentBarcode) {
+              response = await functions().httpsCallable('onOCRUpdate')({
+                barcode: currentBarcode,
+                ocrText: extractedText,
+                labelImageUrl: labelUrl,
+                imageType: resolvedImageType,
+                useAiOnly,
+              });
+            } else {
+              response = await functions().httpsCallable('onOCRSubmit')({
+                barcode,
+                ocrText: extractedText,
+                labelImageUrl: labelUrl,
+                imageType: resolvedImageType,
+                useAiOnly,
+              });
+            }
+            
+            router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(response.data) } });
+            setMode('barcode');
+            setProcessingStep('');
+          } catch (e: any) {
+            Alert.alert('Error', e.message || 'Failed to process image');
+            setMode('nutritionLabel');
+            setProcessingStep('');
+          }
+        };
+
+        if (__DEV__) {
+          Alert.alert(
+            'Debug Mode: Label Scan',
+            'How would you like to process this label?',
+            [
+              { text: 'OCR + AI', onPress: () => runUploadAndSubmit(false) },
+              { text: 'AI Only', onPress: () => runUploadAndSubmit(true) },
+              { text: 'Cancel', style: 'cancel' }
+            ]
+          );
         } else {
-          // CREATE FLOW: Creates a new OCR-based product record.
-          // - productImageUrl is NOT set here — only via explicit gallery upload in result screen
-          response = await functions().httpsCallable('onOCRSubmit')({
-            barcode,
-            ocrText: result.text,
-            labelImageUrl: labelUrl,
-            imageType: resolvedImageType,
-          });
+          // Release mode defaults strictly to AI Only (skips local OCR)
+          await runUploadAndSubmit(true);
         }
-        
-        router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(response.data) } });
-        setMode('barcode');
-        setProcessingStep('');
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to process image');
-      setMode(mode === 'processing' ? 'nutritionLabel' : mode);
-      setProcessingStep('');
+      Alert.alert('Error', e.message || 'Failed to capture image');
+      setMode('barcode');
     }
   };
 

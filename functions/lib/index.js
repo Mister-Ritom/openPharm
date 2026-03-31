@@ -39,11 +39,12 @@ const functionsV1 = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const analysisEngine_1 = require("./utils/analysisEngine");
 const ocrParser_1 = require("./utils/ocrParser");
+const params_1 = require("firebase-functions/params");
 admin.initializeApp();
 const db = admin.firestore();
 db.settings({ ignoreUndefinedProperties: true });
-// AI Setup - In production, use defineSecret('GEMINI_API_KEY')
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAdekDS869fxsrEqPdC7oKKh6OXvhRsFjU';
+// Define secret object for Gemini API
+const GEMINI_API_KEY = (0, params_1.defineSecret)('GEMINI_API_KEY');
 async function getUserProfile(uid) {
     const userDoc = await db.collection('users').doc(uid).get();
     return userDoc.exists ? userDoc.data() : null;
@@ -59,7 +60,10 @@ function isNutritionIncomplete(nutrients) {
         (nutrients.fat_g || 0) === 0 &&
         (nutrients.carbohydrate_g || 0) === 0);
 }
-exports.onScanProduct = functions.https.onCall({ timeoutSeconds: 30 }, async (request) => {
+exports.onScanProduct = functions.https.onCall({
+    timeoutSeconds: 30,
+    secrets: [GEMINI_API_KEY]
+}, async (request) => {
     const { barcode } = request.data;
     const uid = request.auth?.uid;
     if (!uid)
@@ -137,14 +141,21 @@ async function logToUserHistory(uid, product, rating) {
  * Called when no existing product record exists and user scans a fresh label.
  * Stores the label photo URL in referenceImages.nutritionLabel (NOT as productImageUrl).
  */
-exports.onOCRSubmit = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' }).https.onCall(async (data, context) => {
+exports.onOCRSubmit = functionsV1.runWith({
+    timeoutSeconds: 60,
+    memory: '512MB',
+    secrets: [GEMINI_API_KEY]
+}).https.onCall(async (data, context) => {
     const { barcode, ocrText, labelImageUrl, imageType = 'nutritionLabel' } = data;
     const uid = context.auth?.uid;
     if (!uid)
         throw new functionsV1.https.HttpsError('unauthenticated', 'User must be logged in.');
     await incrementUserScanCount(uid);
     try {
-        const rawData = await (0, ocrParser_1.parseNutritionOCR)(ocrText, GEMINI_API_KEY);
+        const rawData = await (0, ocrParser_1.parseNutritionOCR)(ocrText, labelImageUrl, GEMINI_API_KEY.value(), data.useAiOnly ?? false);
+        if (rawData === 'failed') {
+            throw new functionsV1.https.HttpsError('invalid-argument', 'Image does not contain valid nutrition data. Please try again.');
+        }
         const profile = await getUserProfile(uid);
         const analysis = (0, analysisEngine_1.analyzeProduct)(rawData, profile);
         // Build referenceImages map — nutrition labels, ingredient photos, etc.
@@ -193,7 +204,11 @@ exports.onOCRSubmit = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' 
  * - Clears isIncomplete flag.
  * - Does NOT increment scan count (it's a correction, not a new scan).
  */
-exports.onOCRUpdate = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' }).https.onCall(async (data, context) => {
+exports.onOCRUpdate = functionsV1.runWith({
+    timeoutSeconds: 60,
+    memory: '512MB',
+    secrets: [GEMINI_API_KEY]
+}).https.onCall(async (data, context) => {
     const { barcode, ocrText, labelImageUrl, imageType = 'nutritionLabel' } = data;
     const uid = context.auth?.uid;
     if (!uid)
@@ -202,7 +217,10 @@ exports.onOCRUpdate = functionsV1.runWith({ timeoutSeconds: 60, memory: '512MB' 
         throw new functionsV1.https.HttpsError('invalid-argument', 'barcode is required for OCR update.');
     }
     try {
-        const rawData = await (0, ocrParser_1.parseNutritionOCR)(ocrText, GEMINI_API_KEY);
+        const rawData = await (0, ocrParser_1.parseNutritionOCR)(ocrText, labelImageUrl, GEMINI_API_KEY.value(), data.useAiOnly ?? false);
+        if (rawData === 'failed') {
+            throw new functionsV1.https.HttpsError('invalid-argument', 'Image does not contain valid nutrition data. Please try again.');
+        }
         const profile = await getUserProfile(uid);
         const analysis = (0, analysisEngine_1.analyzeProduct)(rawData, profile);
         const docRef = db.collection('products').doc(barcode);

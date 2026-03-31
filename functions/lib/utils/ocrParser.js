@@ -2,28 +2,41 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseNutritionOCR = parseNutritionOCR;
 const generative_ai_1 = require("@google/generative-ai");
-async function parseNutritionOCR(ocrText, geminiKey) {
+async function parseNutritionOCR(ocrText, labelImageUrl, geminiKey, useAiOnly) {
     // --- PHASE 1: Local Regex Parse (Cost: $0) ---
-    const localResult = parseNutritionLocal(ocrText);
-    // If we found both name and some nutrients, we consider it a success for local parsing
-    const isLocalEnough = localResult.name &&
-        (localResult.nutrients.sugar_g > 0 || localResult.ingredients.length > 5);
-    if (isLocalEnough && !ocrText.includes("FAILED_LOCAL")) {
-        console.log("Local OCR Parse Succeeded");
-        return localResult;
+    if (!useAiOnly && ocrText) {
+        const localResult = parseNutritionLocal(ocrText);
+        // If we found both name and some nutrients, we consider it a success for local parsing
+        const isLocalEnough = localResult.name &&
+            (localResult.nutrients.sugar_g > 0 || localResult.ingredients.length > 5);
+        if (isLocalEnough && !ocrText.includes("FAILED_LOCAL")) {
+            console.log("Local OCR Parse Succeeded");
+            return localResult;
+        }
     }
-    // --- PHASE 2: Gemini 2.5 Pro Fallback (High Quality, Expensive) ---
-    console.log("Falling back to Gemini 2.5 Pro for parsing...");
+    // --- PHASE 2: Gemini 2.5 Pro Vision ---
+    console.log(`Falling back to Gemini 2.5 Pro (useAiOnly: ${useAiOnly})...`);
     const genAI = new generative_ai_1.GoogleGenerativeAI(geminiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    let base64Image = null;
+    if (labelImageUrl) {
+        try {
+            const resp = await fetch(labelImageUrl);
+            const buffer = await resp.arrayBuffer();
+            base64Image = Buffer.from(buffer).toString('base64');
+        }
+        catch (e) {
+            console.error("Failed to fetch image for Gemini:", e);
+        }
+    }
     const prompt = `
-    Analyze this OCR text from a food product. Extract structured data carefully. 
-    DO NOT guess the product name or brand. If they are NOT clearly visible on the label, return an empty string "".
-    Format the output as STRICT JSON:
+    Analyze this nutrition label image carefully. You MUST extract the nutrition data.
+    If you cannot find clear nutrition data, you MUST return exactly the word "failed" and nothing else.
+    If you do find nutrition data, return STRICT JSON format exactly like this:
     {
       "name": "string",
       "brand": "string",
-      "ingredients": ["string"],
+      "ingredients": ["string"] | null,
       "nutrients": {
         "energy_kcal": number,
         "protein_g": number,
@@ -35,21 +48,46 @@ async function parseNutritionOCR(ocrText, geminiKey) {
         "sodium_mg": number
       }
     }
-    OCR Text: ${ocrText}
+    DO NOT guess the product name or brand. If they are NOT clearly visible in the image, return an empty string "".
+    Extract the product name and brand if they are visible in the image.
+    If you can find ingredients, return them as an array of strings. If you cannot find ingredients, return null.
   `;
+    const parts = [{ text: prompt }];
+    if (!useAiOnly && ocrText) {
+        parts.push({ text: `\n\nOCR Text from device:\n${ocrText}` });
+    }
+    if (base64Image) {
+        parts.push({
+            inlineData: {
+                data: base64Image,
+                mimeType: "image/jpeg"
+            }
+        });
+    }
     try {
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(parts);
         const response = await result.response;
-        const text = response.text();
+        const text = response.text().trim();
+        if (text.toLowerCase() === 'failed') {
+            return 'failed';
+        }
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch)
             throw new Error('Failed to parse AI response');
-        return JSON.parse(jsonMatch[0]);
+        const parsed = JSON.parse(jsonMatch[0]);
+        // Ensure ingredients is an array if returned as null
+        if (parsed.ingredients === null) {
+            parsed.ingredients = [];
+        }
+        return parsed;
     }
     catch (e) {
         console.error("Gemini Parse Failed:", e);
-        // If Gemini fails, we return the local result anyway as a last resort
-        return localResult;
+        // If Gemini fails and we are not strictly AI only, we return local fallback
+        if (!useAiOnly) {
+            return parseNutritionLocal(ocrText);
+        }
+        return 'failed';
     }
 }
 function parseNutritionLocal(text) {

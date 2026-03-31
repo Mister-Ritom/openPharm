@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../../src/theme/designSystem';
 import { Card } from '../../src/components/ui/Card';
 import { Button } from '../../src/components/ui/Button';
@@ -28,10 +27,10 @@ export default function HomeScreen() {
   const remainingScans = Math.max(0, CONFIG.FREE_SCAN_LIMIT - count);
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container}>
+    <View style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* Header */}
+        {/* Greeting Section */}
         <View style={styles.header}>
           <Text style={styles.greeting}>Hello, Explorer.</Text>
           <View style={styles.profileBadge}>
@@ -81,7 +80,7 @@ export default function HomeScreen() {
         </View>
 
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
