@@ -1,66 +1,94 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Alert, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { getAuth, signInWithEmailAndPassword, signInWithPhoneNumber, signInWithCredential, GoogleAuthProvider } from '@react-native-firebase/auth';
-import { getApp } from '@react-native-firebase/app';
-import { theme } from '../../src/theme/designSystem';
-import { Button } from '../../src/components/ui/Button';
-import { useAnalytics } from '../../src/utils/useAnalytics';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { getApp } from "@react-native-firebase/app";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+  signInWithPhoneNumber,
+} from "@react-native-firebase/auth";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../src/components/ui/Button";
+import { theme } from "../../src/theme/designSystem";
+import { useAnalytics } from "../../src/utils/useAnalytics";
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
-  const [countryCode, setCountryCode] = useState('+91');
-  const [otp, setOtp] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("+91");
+  const [otp, setOtp] = useState("");
   const [confirm, setConfirm] = useState<any>(null);
-  const [method, setMethod] = useState<'email' | 'phone'>('email');
+  const [method, setMethod] = useState<"email" | "phone">("email");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const analytics = useAnalytics();
 
   const handleLogin = async () => {
-    if (!email || !password) return Alert.alert('Error', 'Please enter email and password');
+    if (!email || !password)
+      return Alert.alert("Error", "Please enter email and password");
     setLoading(true);
     try {
       await signInWithEmailAndPassword(getAuth(getApp()), email, password);
-      analytics.trackEvent('login_completed', { method: 'email' });
+      analytics.trackEvent("login_completed", { method: "email" });
     } catch (e: any) {
-      analytics.trackEvent('auth_error', { method: 'email', error_code: e.code });
-      Alert.alert('Login Failed', e.message);
+      analytics.trackEvent("auth_error", {
+        method: "email",
+        error_code: e.code,
+      });
+      Alert.alert("Login Failed", e.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSendOtp = async () => {
-    if (!phone) return Alert.alert('Error', 'Please enter your phone number');
-    const fullPhone = `${countryCode}${phone.replace(/\s+/g, '')}`;
+    if (!phone) return Alert.alert("Error", "Please enter your phone number");
+    const fullPhone = `${countryCode}${phone.replace(/\s+/g, "")}`;
     setLoading(true);
     try {
-      const confirmation = await signInWithPhoneNumber(getAuth(getApp()), fullPhone);
+      const confirmation = await signInWithPhoneNumber(
+        getAuth(getApp()),
+        fullPhone,
+      );
       setConfirm(confirmation);
-      analytics.trackEvent('signup_started', { method: 'phone' });
-      Alert.alert('OTP Sent', 'Check your messages for the verification code.');
+      analytics.trackEvent("signup_started", { method: "phone" });
     } catch (e: any) {
-      analytics.trackEvent('auth_error', { method: 'phone', error_code: e.code });
-      Alert.alert('Error', e.message);
+      analytics.trackEvent("auth_error", {
+        method: "phone",
+        error_code: e.code,
+      });
+      Alert.alert("Error", e.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerifyOtp = async () => {
-    if (!otp) return Alert.alert('Error', 'Please enter the OTP');
+    if (!otp) return Alert.alert("Error", "Please enter the OTP");
     setLoading(true);
     try {
       await confirm.confirm(otp);
-      analytics.trackEvent('login_completed', { method: 'phone' });
+      analytics.trackEvent("login_completed", { method: "phone" });
     } catch (e: any) {
-      analytics.trackEvent('auth_error', { method: 'phone', error_code: e.code });
-      Alert.alert('Verification Failed', 'Invalid code. Please try again.');
+      analytics.trackEvent("auth_error", {
+        method: "phone",
+        error_code: e.code,
+      });
+      Alert.alert("Verification Failed", "Invalid code. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -71,13 +99,16 @@ export default function LoginScreen() {
     try {
       const response = await GoogleSignin.signIn();
       const idToken = response.data?.idToken;
-      if (!idToken) throw new Error('No ID token found');
+      if (!idToken) throw new Error("No ID token found");
       const googleCredential = GoogleAuthProvider.credential(idToken);
       await signInWithCredential(getAuth(getApp()), googleCredential);
-      analytics.trackEvent('login_completed', { method: 'google' });
+      analytics.trackEvent("login_completed", { method: "google" });
     } catch (e: any) {
-      analytics.trackEvent('auth_error', { method: 'google', error_code: e.code });
-      Alert.alert('Google Sign-In Error', e.message);
+      analytics.trackEvent("auth_error", {
+        method: "google",
+        error_code: e.code,
+      });
+      Alert.alert("Google Sign-In Error", e.message);
     } finally {
       setLoading(false);
     }
@@ -85,31 +116,36 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboard}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.keyboard}
+      >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.container}>
             <View style={styles.header}>
               <Text style={styles.title}>Welcome back.</Text>
-              <Text style={styles.subtitle}>Log in to continue exploring healthier foods.</Text>
+              <Text style={styles.subtitle}>
+                Log in to continue exploring healthier foods.
+              </Text>
             </View>
 
             <View style={styles.tabContainer}>
-              <Button 
-                title="Email" 
-                onPress={() => setMethod('email')} 
-                variant={method === 'email' ? 'primary' : 'tertiary'}
+              <Button
+                title="Email"
+                onPress={() => setMethod("email")}
+                variant={method === "email" ? "primary" : "tertiary"}
                 style={styles.tab}
               />
-              <Button 
-                title="Phone" 
-                onPress={() => setMethod('phone')} 
-                variant={method === 'phone' ? 'primary' : 'tertiary'}
+              <Button
+                title="Phone"
+                onPress={() => setMethod("phone")}
+                variant={method === "phone" ? "primary" : "tertiary"}
                 style={styles.tab}
               />
             </View>
 
             <View style={styles.form}>
-              {method === 'email' ? (
+              {method === "email" ? (
                 <>
                   <View style={styles.inputContainer}>
                     <Text style={styles.label}>Email Address</Text>
@@ -177,7 +213,7 @@ export default function LoginScreen() {
                       <Text style={styles.label}>Verification Code</Text>
                       <TextInput
                         style={styles.input}
-                        placeholder="123456"
+                        placeholder="OTP sent to your number."
                         placeholderTextColor={theme.colors.outline}
                         keyboardType="number-pad"
                         maxLength={6}
@@ -216,7 +252,7 @@ export default function LoginScreen() {
               <Button
                 title="Don't have an account? Sign up"
                 variant="tertiary"
-                onPress={() => router.push('/(auth)/signup')}
+                onPress={() => router.push("/(auth)/signup")}
                 style={{ marginTop: theme.spacing[2] }}
               />
             </View>
@@ -238,7 +274,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: theme.spacing[6],
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   header: {
     marginBottom: theme.spacing[8],
@@ -247,7 +283,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.display,
     fontSize: theme.typography.sizes.displayMd,
     color: theme.colors.onSurface,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: theme.spacing[2],
   },
   subtitle: {
@@ -256,7 +292,7 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurfaceVariant,
   },
   tabContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: theme.spacing[4],
     marginBottom: theme.spacing[8],
   },
@@ -267,8 +303,8 @@ const styles = StyleSheet.create({
     gap: theme.spacing[4],
   },
   divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginVertical: theme.spacing[4],
     gap: theme.spacing[4],
   },
@@ -281,7 +317,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodySm,
     color: theme.colors.onSurfaceVariant,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   inputContainer: {
     gap: theme.spacing[2],
@@ -289,7 +325,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodyMd,
-    fontWeight: '600',
+    fontWeight: "600",
     color: theme.colors.onSurface,
   },
   input: {
@@ -301,12 +337,12 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurface,
   },
   phoneInputRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: theme.spacing[2],
   },
   countryCodeInput: {
     width: 80,
-    textAlign: 'center',
+    textAlign: "center",
   },
   phoneInput: {
     flex: 1,

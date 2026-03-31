@@ -1,94 +1,130 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, Alert, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { getAuth, createUserWithEmailAndPassword, signInWithPhoneNumber, signInWithCredential, GoogleAuthProvider, sendEmailVerification } from '@react-native-firebase/auth';
-import { getApp } from '@react-native-firebase/app';
-import { theme } from '../../src/theme/designSystem';
-import { Button } from '../../src/components/ui/Button';
-import { useAnalytics } from '../../src/utils/useAnalytics';
-import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from '@react-native-firebase/firestore';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { getApp } from "@react-native-firebase/app";
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  GoogleAuthProvider,
+  sendEmailVerification,
+  signInWithCredential,
+  signInWithPhoneNumber,
+} from "@react-native-firebase/auth";
+import {
+  doc,
+  getDoc,
+  getFirestore,
+  serverTimestamp,
+  setDoc,
+} from "@react-native-firebase/firestore";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../../src/components/ui/Button";
+import { theme } from "../../src/theme/designSystem";
+import { useAnalytics } from "../../src/utils/useAnalytics";
 
 export default function SignupScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
-  const [countryCode, setCountryCode] = useState('+91');
-  const [otp, setOtp] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("+91");
+  const [otp, setOtp] = useState("");
   const [confirm, setConfirm] = useState<any>(null);
-  const [method, setMethod] = useState<'email' | 'phone'>('email');
+  const [method, setMethod] = useState<"email" | "phone">("email");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const analytics = useAnalytics();
 
   const handleSignup = async () => {
-    if (!email || !password) return Alert.alert('Error', 'Please enter email and password');
+    if (!email || !password)
+      return Alert.alert("Error", "Please enter email and password");
     setLoading(true);
     const authInstance = getAuth(getApp());
     const db = getFirestore(getApp());
     try {
-      const cred = await createUserWithEmailAndPassword(authInstance, email, password);
-      
+      const cred = await createUserWithEmailAndPassword(
+        authInstance,
+        email,
+        password,
+      );
+
       // Send verification email
       await sendEmailVerification(cred.user);
-      
+
       // Initialize firestore user document
-      await setDoc(doc(db, 'users', cred.user.uid), {
+      await setDoc(doc(db, "users", cred.user.uid), {
         email: cred.user.email,
         createdAt: serverTimestamp(),
       });
 
-      analytics.trackEvent('user_signup', { method: 'email' });
+      analytics.trackEvent("user_signup", { method: "email" });
     } catch (e: any) {
-      Alert.alert('Signup Failed', e.message);
+      Alert.alert("Signup Failed", e.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSendOtp = async () => {
-    if (!phone) return Alert.alert('Error', 'Please enter your phone number');
-    const fullPhone = `${countryCode}${phone.replace(/\s+/g, '')}`;
+    if (!phone) return Alert.alert("Error", "Please enter your phone number");
+    const fullPhone = `${countryCode}${phone.replace(/\s+/g, "")}`;
     setLoading(true);
     try {
-      const confirmation = await signInWithPhoneNumber(getAuth(getApp()), fullPhone);
+      const confirmation = await signInWithPhoneNumber(
+        getAuth(getApp()),
+        fullPhone,
+      );
       setConfirm(confirmation);
-      analytics.trackEvent('signup_started', { method: 'phone' });
-      Alert.alert('OTP Sent', 'Check your messages for the verification code.');
+      analytics.trackEvent("signup_started", { method: "phone" });
     } catch (e: any) {
-      analytics.trackEvent('auth_error', { method: 'phone', error_code: e.code });
-      Alert.alert('Error', e.message);
+      analytics.trackEvent("auth_error", {
+        method: "phone",
+        error_code: e.code,
+      });
+      Alert.alert("Error", e.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleVerifyOtp = async () => {
-    if (!otp) return Alert.alert('Error', 'Please enter the OTP');
+    if (!otp) return Alert.alert("Error", "Please enter the OTP");
     setLoading(true);
     const db = getFirestore(getApp());
     try {
       const cred = await confirm.confirm(otp);
-      
+
       // Check if user exists in firestore, if not, create
-      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
+      const userDoc = await getDoc(doc(db, "users", cred.user.uid));
       if (!userDoc.exists()) {
-        await setDoc(doc(db, 'users', cred.user.uid), {
+        await setDoc(doc(db, "users", cred.user.uid), {
           phoneNumber: cred.user.phoneNumber,
           createdAt: serverTimestamp(),
         });
       }
 
-      analytics.trackEvent('user_signup', { method: 'phone' });
+      analytics.trackEvent("user_signup", { method: "phone" });
     } catch (e: any) {
-      analytics.trackEvent('auth_error', { method: 'phone', error_code: e.code });
-      Alert.alert('Verification Failed', 'Invalid code. Please try again.');
+      analytics.trackEvent("auth_error", {
+        method: "phone",
+        error_code: e.code,
+      });
+      Alert.alert("Verification Failed", "Invalid code. Please try again.");
     } finally {
       setLoading(false);
     }
   };
-  
+
   const handleGoogleSignIn = async () => {
     setLoading(true);
     const authInstance = getAuth(getApp());
@@ -96,24 +132,27 @@ export default function SignupScreen() {
     try {
       const response = await GoogleSignin.signIn();
       const idToken = response.data?.idToken;
-      if (!idToken) throw new Error('No ID token found');
+      if (!idToken) throw new Error("No ID token found");
       const googleCredential = GoogleAuthProvider.credential(idToken);
       const cred = await signInWithCredential(authInstance, googleCredential);
-      
+
       // Check if user exists in firestore, if not, create
-      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
+      const userDoc = await getDoc(doc(db, "users", cred.user.uid));
       if (!userDoc.exists()) {
-        await setDoc(doc(db, 'users', cred.user.uid), {
+        await setDoc(doc(db, "users", cred.user.uid), {
           email: cred.user.email,
           createdAt: serverTimestamp(),
           displayName: cred.user.displayName,
         });
       }
-      
-      analytics.trackEvent('login_completed', { method: 'google' });
+
+      analytics.trackEvent("login_completed", { method: "google" });
     } catch (e: any) {
-      analytics.trackEvent('auth_error', { method: 'google', error_code: e.code });
-      Alert.alert('Google Sign-In Error', e.message);
+      analytics.trackEvent("auth_error", {
+        method: "google",
+        error_code: e.code,
+      });
+      Alert.alert("Google Sign-In Error", e.message);
     } finally {
       setLoading(false);
     }
@@ -121,31 +160,36 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboard}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.keyboard}
+      >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.container}>
             <View style={styles.header}>
               <Text style={styles.title}>Join OpenPharma.</Text>
-              <Text style={styles.subtitle}>Discover transparency in every bite.</Text>
+              <Text style={styles.subtitle}>
+                Discover transparency in every bite.
+              </Text>
             </View>
 
             <View style={styles.tabContainer}>
-              <Button 
-                title="Email" 
-                onPress={() => setMethod('email')} 
-                variant={method === 'email' ? 'primary' : 'tertiary'}
+              <Button
+                title="Email"
+                onPress={() => setMethod("email")}
+                variant={method === "email" ? "primary" : "tertiary"}
                 style={styles.tab}
               />
-              <Button 
-                title="Phone" 
-                onPress={() => setMethod('phone')} 
-                variant={method === 'phone' ? 'primary' : 'tertiary'}
+              <Button
+                title="Phone"
+                onPress={() => setMethod("phone")}
+                variant={method === "phone" ? "primary" : "tertiary"}
                 style={styles.tab}
               />
             </View>
 
             <View style={styles.form}>
-              {method === 'email' ? (
+              {method === "email" ? (
                 <>
                   <View style={styles.inputContainer}>
                     <Text style={styles.label}>Email Address</Text>
@@ -213,7 +257,7 @@ export default function SignupScreen() {
                       <Text style={styles.label}>Verification Code</Text>
                       <TextInput
                         style={styles.input}
-                        placeholder="123456"
+                        placeholder="OTP sent to your number."
                         placeholderTextColor={theme.colors.outline}
                         keyboardType="number-pad"
                         maxLength={6}
@@ -239,7 +283,7 @@ export default function SignupScreen() {
               <Button
                 title="Already have an account? Log in"
                 variant="tertiary"
-                onPress={() => router.push('/(auth)/login')}
+                onPress={() => router.push("/(auth)/login")}
                 style={{ marginTop: theme.spacing[2] }}
               />
 
@@ -274,7 +318,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: theme.spacing[6],
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   header: {
     marginBottom: theme.spacing[8],
@@ -283,7 +327,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.display,
     fontSize: theme.typography.sizes.displayMd,
     color: theme.colors.onSurface,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: theme.spacing[2],
   },
   subtitle: {
@@ -295,7 +339,7 @@ const styles = StyleSheet.create({
     gap: theme.spacing[4],
   },
   tabContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: theme.spacing[4],
     marginBottom: theme.spacing[4],
   },
@@ -303,12 +347,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   phoneInputRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: theme.spacing[2],
   },
   countryCodeInput: {
     width: 80,
-    textAlign: 'center',
+    textAlign: "center",
   },
   phoneInput: {
     flex: 1,
@@ -319,7 +363,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodyMd,
-    fontWeight: '600',
+    fontWeight: "600",
     color: theme.colors.onSurface,
   },
   input: {
@@ -331,8 +375,8 @@ const styles = StyleSheet.create({
     color: theme.colors.onSurface,
   },
   divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginVertical: theme.spacing[2],
     gap: theme.spacing[4],
   },
@@ -345,6 +389,6 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.fontFamily.body,
     fontSize: theme.typography.sizes.bodySm,
     color: theme.colors.onSurfaceVariant,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

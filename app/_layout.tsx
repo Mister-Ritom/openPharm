@@ -63,6 +63,8 @@ function LayoutContent() {
     const inMainGroup = segments[0] === "(main)";
     const inLegalGroup = segments[0] === "(legal)";
 
+    const userHasOnboarded = hasOnboarded || profile?.hasOnboarded;
+
     // Sync onboarding status from profile to LocalStorage if needed
     if (user && profile?.hasOnboarded && !hasOnboarded) {
       setHasOnboarded(true);
@@ -70,17 +72,23 @@ function LayoutContent() {
     }
 
     if (!user) {
-      // Visitors: Onboarding is the landing page
-      if (!inOnboardingGroup && !inAuthGroup) {
-        router.replace("/(onboarding)/step1");
+      // Visitors
+      if (userHasOnboarded) {
+        // Already onboarded but not logged in -> Auth
+        if (!inAuthGroup && !inLegalGroup) {
+          router.replace("/(auth)/login");
+        }
+      } else {
+        // Not onboarded -> Onboarding
+        if (!inOnboardingGroup && !inAuthGroup && !inLegalGroup) {
+          router.replace("/(onboarding)/step1");
+        }
       }
     } else {
       // User is logged in
       const needsEmailVerification = user.email && !user.emailVerified;
       const isVerifying = path.includes("verify-email");
       const isSettingUp = path.includes("setup-profile");
-
-      const userHasOnboarded = hasOnboarded || profile?.hasOnboarded;
 
       if (needsEmailVerification && !isVerifying) {
         router.replace("/(auth)/verify-email");

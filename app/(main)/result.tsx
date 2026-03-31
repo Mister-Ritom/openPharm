@@ -88,6 +88,7 @@ export default function ResultScreen() {
         // Queue the final remote URL for the background save
         setPendingUpdates((prev: any) => ({ ...prev, productImageUrl: url }));
       } catch (e) {
+        console.error("Image upload failed:", e);
         Alert.alert("Upload Failed", "Could not save the image.");
       } finally {
         setIsUploadingImage(false);
@@ -326,6 +327,32 @@ export default function ResultScreen() {
             </View>
           </View>
         </Card>
+
+        {/* Fix bad data banner */}
+        <TouchableOpacity
+          style={styles.fixBanner}
+          activeOpacity={0.75}
+          onPress={() =>
+            router.push({
+              pathname: "/(main)/scan",
+              params: {
+                initialMode: "nutritionLabel",
+                initialBarcode: product.barcode,
+              },
+            })
+          }
+        >
+          <View style={styles.fixBannerIconWrap}>
+            <Ionicons name="camera-outline" size={22} color={theme.colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.fixBannerTitle}>Something look wrong?</Text>
+            <Text style={styles.fixBannerSub}>
+              Scan the nutrition label to fix and update the data
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.outline} />
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -474,5 +501,37 @@ const styles = StyleSheet.create({
   nutriItem: {
     width: "48%",
     marginBottom: theme.spacing[2],
+  },
+  fixBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[3],
+    backgroundColor: theme.colors.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    borderRadius: theme.rounding.lg,
+    paddingVertical: theme.spacing[4],
+    paddingHorizontal: theme.spacing[4],
+    marginBottom: theme.spacing[4],
+  },
+  fixBannerIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.primaryContainer + "33",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fixBannerTitle: {
+    fontFamily: theme.typography.fontFamily.headline,
+    fontSize: theme.typography.sizes.bodyLg,
+    fontWeight: "700",
+    color: theme.colors.onSurface,
+  },
+  fixBannerSub: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodySm,
+    color: theme.colors.onSurfaceVariant,
+    marginTop: 2,
   },
 });

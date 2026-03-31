@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Alert, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -7,7 +7,7 @@ import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
 import functions from '@react-native-firebase/functions';
 import storage from '@react-native-firebase/storage';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAnalytics } from '../../src/utils/useAnalytics';
 import { useSubscription } from '../../src/hooks/useSubscription';
 import { useScanCount } from '../../src/hooks/useScanCount';
@@ -15,11 +15,22 @@ import { CONFIG } from '../../src/constants/Config';
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
+  const { initialMode, initialBarcode } = useLocalSearchParams<{ initialMode?: string; initialBarcode?: string }>();
   const [mode, setMode] = useState<'barcode' | 'nutritionLabel' | 'processing'>('barcode');
   const [currentBarcode, setCurrentBarcode] = useState<string | null>(null);
   const [processingStep, setProcessingStep] = useState<string>('');
 
+  // Tab screens stay mounted — react to incoming params so the result screen
+  // can deep-link us straight into nutrition-label mode with a pre-filled barcode.
+  useEffect(() => {
+    if (initialMode === 'nutritionLabel') {
+      setCurrentBarcode(initialBarcode || null);
+      setMode('nutritionLabel');
+    }
+  }, [initialMode, initialBarcode]);
+
   const cameraRef = useRef<CameraView>(null);
+  const limitAlertShown = useRef(false);
   const router = useRouter();
   const analytics = useAnalytics();
   
@@ -40,12 +51,26 @@ export default function ScanScreen() {
 
   const checkLimit = () => {
     if (!isPro && count >= CONFIG.FREE_SCAN_LIMIT) {
+      // Guard: only show the alert once until the user dismisses it and tries again.
+      if (limitAlertShown.current) return false;
+      limitAlertShown.current = true;
+
       Alert.alert(
         'Scan Limit Reached',
         `You have reached your daily limit of ${CONFIG.FREE_SCAN_LIMIT} scans. Upgrade to Pro for unlimited access and deep clinical insights.`,
         [
-          { text: 'Later', style: 'cancel' },
-          { text: 'Upgrade to Pro', onPress: () => router.push('/paywall') }
+          {
+            text: 'Later',
+            style: 'cancel',
+            onPress: () => { limitAlertShown.current = false; },
+          },
+          {
+            text: 'Upgrade to Pro',
+            onPress: () => {
+              limitAlertShown.current = false;
+              router.push('/paywall');
+            },
+          },
         ]
       );
       return false;
