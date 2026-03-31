@@ -320,6 +320,8 @@ On any signup, a Firestore document is created at `/users/{uid}` with minimal da
 
 PostHog analytics, proxied via `https://pharma.ritom.in`. API key: `phc_IbZDwVYFWvdPa0GMzQ7BELr04LgfS4lXsMuwlPapaMC`.
 
+Users are identified in PostHog using their Firebase `uid` via `posthog.identify(uid, properties)` in `app/_layout.tsx`. This ensures consistent tracking across app restarts and devices. `posthog.reset()` is called on logout.
+
 Common events tracked:
 - `user_signup` — `{ method: 'email' | 'phone' | 'google' }`
 - `barcode_detected` — `{ barcode, format }`
@@ -340,5 +342,5 @@ Common events tracked:
 6. **`isIncomplete` flag**: Products from OpenFoodFacts where all major nutrients are 0 get `isIncomplete: true`. The result screen shows a red warning banner, and `scan.tsx` shows an alert during the barcode scan flow.
 7. **`productImageUrl` vs `referenceImages`**: `productImageUrl` is ONLY set when the user explicitly picks a photo from their gallery in `result.tsx`. Nutrition label photos taken during OCR scans are stored in `product.referenceImages` (e.g. `referenceImages.nutritionLabel`) and in Firebase Storage as `{barcode}/ref_{imageType}.jpg`. They are never set as the product display image.
 8. **`onOCRUpdate` vs `onOCRSubmit`**: `onOCRUpdate` is used for corrections to existing products (does not count against scan limit). `onOCRSubmit` creates a new product record. Both are triggered from `scan.tsx`, routed by the `isUpdateMode` param.
-9. **Function from `app/_layout.tsx`**: `configureRevenueCat()` is called once on mount; `syncRevenueCatUser(uid)` is called whenever the auth user changes. In `__DEV__` mode, `RC_TEST_KEY` is used.
+9. **Function from `app/_layout.tsx`**: `configureRevenueCat()` is called once on mount; `syncRevenueCatUser(uid)` and `posthog.identify(uid)` are called whenever the auth user changes to keep analytics and subscriptions in sync.
 10. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.

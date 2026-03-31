@@ -1,6 +1,6 @@
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { PostHogProvider } from "posthog-react-native";
+import { PostHogProvider, usePostHog } from "posthog-react-native";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import {
@@ -22,15 +22,18 @@ const POSTHOG_API_KEY = "phc_IbZDwVYFWvdPa0GMzQ7BELr04LgfS4lXsMuwlPapaMC";
 
 export default function RootLayout() {
   return (
-    <OnboardingProvider>
-      <LayoutContent />
-    </OnboardingProvider>
+    <PostHogProvider apiKey={POSTHOG_API_KEY} options={posthogConfig}>
+      <OnboardingProvider>
+        <LayoutContent />
+      </OnboardingProvider>
+    </PostHogProvider>
   );
 }
 
 function LayoutContent() {
   const { user, profile, initializing } = useAuth();
   const { hasOnboarded, setHasOnboarded } = useOnboarding();
+  const posthog = usePostHog();
   const router = useRouter();
   const segments = useSegments();
 
@@ -47,12 +50,21 @@ function LayoutContent() {
     configureRevenueCat();
   }, []);
 
-  // Sync RevenueCat whenever the Firebase auth user changes
+  // Sync RevenueCat and PostHog whenever the Firebase auth user changes
   useEffect(() => {
     if (!initializing) {
       syncRevenueCatUser(user?.uid);
+
+      if (user?.uid) {
+        posthog?.identify(user.uid, {
+          email: user.email,
+          ...profile,
+        });
+      } else {
+        posthog?.reset();
+      }
     }
-  }, [user?.uid, initializing]);
+  }, [user?.uid, initializing, profile, posthog]);
 
   useEffect(() => {
     if (initializing || hasOnboarded === null) return;
@@ -145,55 +157,53 @@ function LayoutContent() {
   }
 
   return (
-    <PostHogProvider apiKey={POSTHOG_API_KEY} options={posthogConfig}>
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: theme.colors.surface },
-          headerTintColor: theme.colors.onSurface,
-          headerTitleStyle: {
-            fontFamily: theme.typography.fontFamily.headline,
-            fontWeight: "700",
-          },
-          // @ts-ignore - headerBackButtonDisplayMode hides the back title in modern native-stack versions
-          headerBackButtonDisplayMode: "minimal",
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: theme.colors.surface },
+        headerTintColor: theme.colors.onSurface,
+        headerTitleStyle: {
+          fontFamily: theme.typography.fontFamily.headline,
+          fontWeight: "700",
+        },
+        // @ts-ignore - headerBackButtonDisplayMode hides the back title in modern native-stack versions
+        headerBackButtonDisplayMode: "minimal",
+      }}
+    >
+      <Stack.Screen
+        name="(main)"
+        options={{
+          headerShown: false,
         }}
-      >
-        <Stack.Screen
-          name="(main)"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="(legal)/privacy"
-          options={{
-            headerTitle: "Privacy Policy",
-            headerShown: true,
-          }}
-        />
-        <Stack.Screen
-          name="(legal)/tos"
-          options={{
-            headerTitle: "Terms of Service",
-            headerShown: true,
-          }}
-        />
-        <Stack.Screen
-          name="about/index"
-          options={{
-            headerTitle: "About OpenPharma",
-            headerShown: true,
-          }}
-        />
-        <Stack.Screen
-          name="paywall/index"
-          options={{
-            headerShown: false,
-          }}
-        />
-      </Stack>
-    </PostHogProvider>
+      />
+      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="(legal)/privacy"
+        options={{
+          headerTitle: "Privacy Policy",
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="(legal)/tos"
+        options={{
+          headerTitle: "Terms of Service",
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="about/index"
+        options={{
+          headerTitle: "About OpenPharma",
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="paywall/index"
+        options={{
+          headerShown: false,
+        }}
+      />
+    </Stack>
   );
 }
