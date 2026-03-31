@@ -5,10 +5,10 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { PurchasesPackage } from 'react-native-purchases';
-import { theme } from '../src/theme/designSystem';
-import { Button } from '../src/components/ui/Button';
-import { useSubscription } from '../src/hooks/useSubscription';
-import { useAnalytics } from '../src/utils/useAnalytics';
+import { theme } from '../../src/theme/designSystem';
+import { Button } from '../../src/components/ui/Button';
+import { useSubscription } from '../../src/hooks/useSubscription';
+import { useAnalytics } from '../../src/utils/useAnalytics';
 
 const PLAN_META: Record<string, { label: string; badge?: string; highlight: boolean }> = {
   '$rc_monthly':   { label: 'Monthly',   highlight: false },
@@ -60,7 +60,7 @@ export default function PaywallScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container} bounces={false}>
       <Image
-        source={require('../assets/images/paywall_hero.png')}
+        source={require('../../assets/images/paywall_hero.png')}
         style={styles.hero}
         resizeMode="cover"
       />

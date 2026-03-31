@@ -10,19 +10,27 @@ interface OnboardingContextType {
 const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
-  const [hasOnboarded, setHasOnboarded] = useState<boolean | null>(null);
+  const [hasOnboarded, _setHasOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem('onboarding_complete').then((val) => {
-      setHasOnboarded(val === 'true');
+      _setHasOnboarded(val === 'true');
     });
   }, []);
+
+  const setHasOnboarded = async (val: boolean) => {
+    try {
+      await AsyncStorage.setItem('onboarding_complete', val ? 'true' : 'false');
+      _setHasOnboarded(val);
+    } catch (e) {
+      console.error('Error setting onboarding status:', e);
+    }
+  };
 
   const completeOnboarding = async (profile: string) => {
     try {
       await AsyncStorage.setItem('health_profile', profile);
-      await AsyncStorage.setItem('onboarding_complete', 'true');
-      setHasOnboarded(true);
+      await setHasOnboarded(true);
     } catch (e) {
       console.error('Error completing onboarding:', e);
     }

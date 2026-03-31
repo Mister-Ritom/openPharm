@@ -28,7 +28,6 @@ openPharm/
 ├── app/                    # Expo Router screens (file-based routing)
 │   ├── _layout.tsx         # ROOT layout — auth guard + navigation logic lives here
 │   ├── paywall.tsx         # Full-screen modal paywall (RevenueCat packages)
-│   ├── modal.tsx           # Generic modal placeholder
 │   ├── (onboarding)/       # 4-step carousel shown to first-time visitors (no auth needed)
 │   ├── (auth)/             # Authentication screens
 │   ├── (main)/             # Authenticated tab app
@@ -99,7 +98,7 @@ The root stack is defined in `app/_layout.tsx`. Navigation is **entirely guard-d
 | `(auth)` | `/(auth)/` | ❌ No | Signup, Login, VerifyEmail, SetupProfile |
 | `(main)` | `/(main)/` | ✅ Yes | Bottom-tab authenticated app |
 | `(legal)` | `/(legal)/` | ❌ No | Privacy Policy, ToS (accessible from Profile & Paywall) |
-| Root | `/paywall`, `/modal` | ✅ Yes | Full-screen modal overlay routes |
+| Root | `/paywall` | ✅ Yes | Full-screen modal overlay routes |
 
 ### Navigation Guard Logic (in `app/_layout.tsx`)
 
@@ -120,6 +119,8 @@ User logged in, profile incomplete (missing displayName, healthProfiles, or ageR
 
 User logged in, profile complete:
   → if still in (auth) or (onboarding) → redirect to /(main)
+
+**Implicit screen-level guards**: `login.tsx` and `signup.tsx` also perform an explicit check for completed profiles after successful authentication to provide an immediate `router.replace("/(main)")` and bypass the `setup-profile` screen for returning users.
 ```
 
 **Profile completeness check**: `!!profile.displayName && !!profile.healthProfiles && !!profile.ageRange`
@@ -159,8 +160,8 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 
 | File | Route | Key Behavior |
 |------|-------|-------------|
-| `signup.tsx` | `/(auth)/signup` | Email/password + Phone (OTP) + Google Sign-In. On success creates `/users/{uid}` doc in Firestore. Sends email verification for email method. |
-| `login.tsx` | `/(auth)/login` | Email + Google login |
+| `signup.tsx` | `/(auth)/signup` | Email/password + Phone (OTP) + Google Sign-In. On success creates `/users/{uid}` doc in Firestore. Sends email verification for email method. **Checks for returning users after success to skip setup-profile.** |
+| `login.tsx` | `/(auth)/login` | Email + Google login. **Checks for returning users after success to skip setup-profile.** |
 | `verify-email.tsx` | `/(auth)/verify-email` | Polls/shows verification status, resend option |
 | `setup-profile.tsx` | `/(auth)/setup-profile` | **Collects displayName, healthProfiles (multi-select), ageRange, notifications pref**. On save: writes full profile to Firestore `/users/{uid}` with `hasOnboarded: true`, updates AsyncStorage, calls `setHasOnboarded(true)`. Navigation guard then auto-redirects to `/(main)`. |
 
@@ -179,7 +180,6 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 | File | Route | Purpose |
 |------|-------|---------|
 | `paywall.tsx` | `/paywall` | RevenueCat paywall. Shows 3 package cards (Monthly $2.99, 6-Month $12.99, Annual $19.99). Already-pro users see confirmation screen. Web users see fallback. |
-| `modal.tsx` | `/modal` | Placeholder |
 
 ### (legal)
 

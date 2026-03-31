@@ -1,4 +1,5 @@
 import auth from "@react-native-firebase/auth";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { useRouter } from "expo-router";
 import React from "react";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -13,12 +14,35 @@ export default function ProfileScreen() {
   const user = auth().currentUser;
   const { isPro, loading } = useSubscription();
 
-  const handleLogout = async () => {
-    try {
-      await auth().signOut();
-    } catch {
-      Alert.alert("Error logging out");
-    }
+  const handleLogout = () => {
+    Alert.alert(
+      "Log Out",
+      "Are you sure you want to log out of your account?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Log Out",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Sign out from Google if applicable
+              try {
+                await GoogleSignin.signOut();
+              } catch (e) {
+                console.warn("Google Sign-In signOut error:", e);
+              }
+              // Sign out from Firebase
+              await auth().signOut();
+            } catch {
+              Alert.alert("Error", "There was a problem logging out. Please try again.");
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (

@@ -18,9 +18,8 @@ export function useAuth() {
       setUser(user);
       
       // Clean up previous profile listener if any
-      profileUnsubscribe?.();
-
       if (user) {
+        setInitializing(true);
         const userDocRef = doc(db, 'users', user.uid);
         profileUnsubscribe = onSnapshot(userDocRef, (snap) => {
           if (snap.exists()) {

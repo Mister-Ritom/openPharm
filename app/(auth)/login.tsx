@@ -7,6 +7,7 @@ import {
   signInWithPhoneNumber,
 } from "@react-native-firebase/auth";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import { doc, getDoc, getFirestore } from "@react-native-firebase/firestore";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -51,6 +52,17 @@ export default function LoginScreen() {
       });
       Alert.alert("Login Failed", e.message);
     } finally {
+      const auth = getAuth(getApp());
+      if (auth.currentUser) {
+        const db = getFirestore(getApp());
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (userDoc.exists()) {
+          const profile = userDoc.data();
+          if (profile?.displayName && profile?.healthProfiles && profile?.ageRange) {
+            router.replace("/(main)");
+          }
+        }
+      }
       setLoading(false);
     }
   };
@@ -90,6 +102,17 @@ export default function LoginScreen() {
       });
       Alert.alert("Verification Failed", "Invalid code. Please try again.");
     } finally {
+      const auth = getAuth(getApp());
+      if (auth.currentUser) {
+        const db = getFirestore(getApp());
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (userDoc.exists()) {
+          const profile = userDoc.data();
+          if (profile?.displayName && profile?.healthProfiles && profile?.ageRange) {
+            router.replace("/(main)");
+          }
+        }
+      }
       setLoading(false);
     }
   };
@@ -110,6 +133,17 @@ export default function LoginScreen() {
       });
       Alert.alert("Google Sign-In Error", e.message);
     } finally {
+      const auth = getAuth(getApp());
+      if (auth.currentUser) {
+        const db = getFirestore(getApp());
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (userDoc.exists()) {
+          const profile = userDoc.data();
+          if (profile?.displayName && profile?.healthProfiles && profile?.ageRange) {
+            router.replace("/(main)");
+          }
+        }
+      }
       setLoading(false);
     }
   };

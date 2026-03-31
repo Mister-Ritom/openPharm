@@ -62,25 +62,29 @@ function LayoutContent() {
     const inOnboardingGroup = segments[0] === "(onboarding)";
     const inMainGroup = segments[0] === "(main)";
     const inLegalGroup = segments[0] === "(legal)";
+    const isAbout = segments[0] === "about";
+
+    // Wait for the router to fully initialize its path during rebuilds
+    if (!segments || (segments.length as any) === 0) return;
 
     const userHasOnboarded = hasOnboarded || profile?.hasOnboarded;
 
     // Sync onboarding status from profile to LocalStorage if needed
     if (user && profile?.hasOnboarded && !hasOnboarded) {
       setHasOnboarded(true);
-      return; // Re-run effect with updated state
+      // Continue execution to handle routing in the same frame if possible
     }
 
     if (!user) {
       // Visitors
       if (userHasOnboarded) {
         // Already onboarded but not logged in -> Auth
-        if (!inAuthGroup && !inLegalGroup) {
+        if (!inAuthGroup && !inLegalGroup && !isAbout) {
           router.replace("/(auth)/login");
         }
       } else {
         // Not onboarded -> Onboarding
-        if (!inOnboardingGroup && !inAuthGroup && !inLegalGroup) {
+        if (!inOnboardingGroup && !inAuthGroup && !inLegalGroup && !isAbout) {
           router.replace("/(onboarding)/step1");
         }
       }
@@ -174,6 +178,19 @@ function LayoutContent() {
           options={{
             headerTitle: "Terms of Service",
             headerShown: true,
+          }}
+        />
+        <Stack.Screen
+          name="about/index"
+          options={{
+            headerTitle: "About OpenPharma",
+            headerShown: true,
+          }}
+        />
+        <Stack.Screen
+          name="paywall/index"
+          options={{
+            headerShown: false,
           }}
         />
       </Stack>

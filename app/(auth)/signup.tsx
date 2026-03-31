@@ -121,6 +121,21 @@ export default function SignupScreen() {
       });
       Alert.alert("Verification Failed", "Invalid code. Please try again.");
     } finally {
+      const auth = getAuth(getApp());
+      if (auth.currentUser) {
+        const db = getFirestore(getApp());
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (userDoc.exists()) {
+          const profile = userDoc.data();
+          if (
+            profile?.displayName &&
+            profile?.healthProfiles &&
+            profile?.ageRange
+          ) {
+            router.replace("/(main)");
+          }
+        }
+      }
       setLoading(false);
     }
   };
@@ -154,6 +169,21 @@ export default function SignupScreen() {
       });
       Alert.alert("Google Sign-In Error", e.message);
     } finally {
+      const auth = getAuth(getApp());
+      if (auth.currentUser) {
+        const db = getFirestore(getApp());
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (userDoc.exists()) {
+          const profile = userDoc.data();
+          if (
+            profile?.displayName &&
+            profile?.healthProfiles &&
+            profile?.ageRange
+          ) {
+            router.replace("/(main)");
+          }
+        }
+      }
       setLoading(false);
     }
   };
@@ -299,6 +329,10 @@ export default function SignupScreen() {
                 onPress={handleGoogleSignIn}
                 style={{ marginTop: 0 }}
               />
+
+              <Text style={styles.agreementText}>
+                By creating an account, you agree to our Terms of Service and Privacy Policy.
+              </Text>
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -390,5 +424,14 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.bodySm,
     color: theme.colors.onSurfaceVariant,
     fontWeight: "600",
+  },
+  agreementText: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodySm,
+    color: theme.colors.onSurfaceVariant,
+    opacity: 0.5,
+    textAlign: "center",
+    marginTop: theme.spacing[2],
+    lineHeight: 18,
   },
 });

@@ -41,6 +41,10 @@ export default function OnboardingStep4() {
           primaryGoal: selectedProfile,
           lastActiveAt: serverTimestamp()
         });
+        router.replace('/(main)');
+      } else {
+        // Visitor -> Go to login
+        router.replace('/(auth)/login');
       }
       
       analytics.trackEvent('onboarding_completed', { profile: selectedProfile });
