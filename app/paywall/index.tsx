@@ -10,17 +10,18 @@ import { Button } from '../../src/components/ui/Button';
 import { useSubscription } from '../../src/hooks/useSubscription';
 import { useAnalytics } from '../../src/utils/useAnalytics';
 
-const PLAN_META: Record<string, { label: string; badge?: string; highlight: boolean }> = {
-  '$rc_monthly':   { label: 'Monthly',   highlight: false },
-  '$rc_six_month': { label: '6 Months',  badge: 'Save 30%', highlight: false },
-  '$rc_annual':    { label: 'Yearly',    badge: 'Best Value 🔥', highlight: true },
+const PLAN_META: Record<string, { label: string; badge?: string; highlight: boolean; description: string }> = {
+  '$rc_monthly':   { label: 'Monthly',   highlight: false, description: 'Full access to all Pro features.' },
+  '$rc_six_month': { label: '6 Months',  badge: 'Save 30%', highlight: false, description: 'The perfect balance for your health.' },
+  '$rc_annual':    { label: 'Yearly',    badge: 'Best Value 🔥', highlight: true, description: 'The ultimate way to track every meal.' },
 };
 
 export default function PaywallScreen() {
   const router   = useRouter();
   const analytics = useAnalytics();
-  const { offerings, purchasePackage, restorePurchases, isPro, loading } = useSubscription();
+  const { offerings, purchasePackage, restorePurchases, isPro, loading, grantMockPro } = useSubscription();
   const [purchasing, setPurchasing] = useState<string | null>(null);
+
 
   const packages: PurchasesPackage[] = offerings?.availablePackages ?? [];
 
@@ -110,26 +111,32 @@ export default function PaywallScreen() {
                     activeOpacity={0.85}
                   >
                     {meta.badge && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{meta.badge}</Text>
+                      <View style={[styles.badge, meta.highlight && styles.badgeHighlight]}>
+                        <Text style={[styles.badgeText, meta.highlight && styles.badgeTextHighlight]}>{meta.badge}</Text>
                       </View>
                     )}
                     <View style={styles.planRow}>
-                      <View>
+                      <View style={styles.planInfo}>
                         <Text style={[styles.planLabel, meta.highlight && styles.planLabelHighlight]}>
                           {meta.label}
                         </Text>
-                        <Text style={[styles.planSub, meta.highlight && styles.planSubHighlight]}>
-                          {pkg.product.description || pkg.product.title}
+                        <Text 
+                          style={[styles.planSub, meta.highlight && styles.planSubHighlight]}
+                          numberOfLines={2}
+                        >
+                          {meta.description}
                         </Text>
                       </View>
-                      {isBuying ? (
-                        <ActivityIndicator color={meta.highlight ? '#fff' : theme.colors.primary} />
-                      ) : (
-                        <Text style={[styles.planPrice, meta.highlight && styles.planPriceHighlight]}>
-                          {pkg.product.priceString}
-                        </Text>
-                      )}
+                      
+                      <View style={styles.priceContainer}>
+                        {isBuying ? (
+                          <ActivityIndicator color={meta.highlight ? '#fff' : theme.colors.primary} />
+                        ) : (
+                          <Text style={[styles.planPrice, meta.highlight && styles.planPriceHighlight]}>
+                            {pkg.product.priceString}
+                          </Text>
+                        )}
+                      </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -151,6 +158,22 @@ export default function PaywallScreen() {
               textStyle={styles.linkText}
             />
           </View>
+          
+          {__DEV__ && (
+            <View style={{ alignItems: 'center', marginTop: -12, marginBottom: 16 }}>
+               <Button
+                  variant="secondary"
+                  title="🛠️ Grant Mock Pro (Dev Only)"
+                  onPress={async () => {
+                    await grantMockPro();
+                    router.back();
+                  }}
+                  style={{ backgroundColor: 'transparent', borderColor: theme.colors.outline, borderWidth: 1 }}
+                  textStyle={{ color: theme.colors.outline, fontSize: 13 }}
+               />
+            </View>
+          )}
+
         </View>
       </View>
     </ScrollView>
@@ -215,7 +238,16 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     borderColor: theme.colors.primary,
   },
-  planRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  planRow:    { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    gap: theme.spacing[2],
+  },
+  planInfo: {
+    flex: 1,
+    marginRight: theme.spacing[2],
+  },
   planLabel: {
     fontFamily: theme.typography.fontFamily.headline,
     fontSize: theme.typography.sizes.headlineSm,
@@ -228,13 +260,21 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.bodySm,
     color: theme.colors.outline,
     marginTop: 2,
+    lineHeight: 18,
   },
-  planSubHighlight: { color: 'rgba(255,255,255,0.75)' },
+  planSubHighlight: { color: 'rgba(255,255,255,0.85)' },
+  priceContainer: {
+    paddingLeft: theme.spacing[2],
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    minWidth: 80,
+  },
   planPrice: {
     fontFamily: theme.typography.fontFamily.display,
     fontSize: theme.typography.sizes.headlineSm,
     color: theme.colors.primary,
     fontWeight: '800',
+    textAlign: 'right',
   },
   planPriceHighlight: { color: '#fff' },
 
@@ -244,14 +284,22 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.secondary,
     borderRadius: theme.rounding.full,
     paddingHorizontal: theme.spacing[3],
-    paddingVertical: 3,
+    paddingVertical: 4,
     marginBottom: theme.spacing[3],
+  },
+  badgeHighlight: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
   },
   badgeText: {
     fontFamily: theme.typography.fontFamily.body,
     fontSize: 11,
     color: theme.colors.onPrimary,
     fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  badgeTextHighlight: {
+    color: '#fff',
   },
 
   // Legal
@@ -263,7 +311,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: theme.spacing[3],
   },
-  legalLinks: { flexDirection: 'row', justifyContent: 'center', gap: theme.spacing[2] },
+  legalLinks: { flexDirection: 'row', justifyContent: 'center', gap: theme.spacing[2], paddingBottom: theme.spacing[8] },
   linkText:   { fontSize: 12, color: theme.colors.outline },
 
   // Pro / web fallback
