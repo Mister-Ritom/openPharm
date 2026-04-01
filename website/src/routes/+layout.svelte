@@ -35,7 +35,8 @@
     <div class="footer-links">
       <a href="/privacy">Privacy Policy</a>
       <a href="/tos">Terms of Service</a>
-      <a href="mailto:contact@pharma.ritom.in">contact@pharma.ritom.in</a>
+      <a href="/delete-account">Request Account Deletion</a>
+      <a href="mailto:ritomghosh856@gmail.com">ritomghosh856@gmail.com</a>
     </div>
   </div>
   <div class="container copyright">

@@ -34,7 +34,7 @@
       
       <h2>6. Contact Us</h2>
       <p>
-        For privacy inquiries or to exercise your data rights, please email us directly at <a href="mailto:contact@pharma.ritom.in">contact@pharma.ritom.in</a>.
+        For privacy inquiries or to exercise your data rights, please email us directly at <a href="mailto:ritomghosh856@gmail.com">ritomghosh856@gmail.com</a>.
       </p>
     </div>
   </div>
