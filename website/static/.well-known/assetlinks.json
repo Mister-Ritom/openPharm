@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "me.ritom.openpharm",
+      "sha256_cert_fingerprints": [
+        "6F:1A:00:B8:07:53:03:32:FD:DB:2B:6A:B1:5B:BB:E7:83:7C:D2:BF:13:3C:D8:74:84:BA:20:70:BB:51:42:EF"
+      ]
+    }
+  }
+]

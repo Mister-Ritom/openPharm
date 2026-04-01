@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "Q6TV3G996B.me.ritom.openpharm",
+        "paths": ["*"]
+      }
+    ]
+  }
+}
