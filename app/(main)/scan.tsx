@@ -1,21 +1,97 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, Alert, Dimensions, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import TextRecognition from '@react-native-ml-kit/text-recognition';
-import { theme } from '../../src/theme/designSystem';
-import { Button } from '../../src/components/ui/Button';
+import { getApp } from '@react-native-firebase/app';
+import { addDoc, collection, doc, getDoc, getFirestore, runTransaction, serverTimestamp } from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
 import storage from '@react-native-firebase/storage';
+import TextRecognition from '@react-native-ml-kit/text-recognition';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useAnalytics } from '../../src/utils/useAnalytics';
-import { useSubscription } from '../../src/hooks/useSubscription';
-import { useScanCount } from '../../src/hooks/useScanCount';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Button } from '../../src/components/ui/Button';
 import { CONFIG } from '../../src/constants/Config';
+import { useAuth } from '../../src/hooks/useAuth';
+import { useScanCount } from '../../src/hooks/useScanCount';
+import { useSubscription } from '../../src/hooks/useSubscription';
+import { theme } from '../../src/theme/designSystem';
+import { analyzeProduct, NutritionData } from '../../src/utils/analysisEngine';
+import { useAnalytics } from '../../src/utils/useAnalytics';
 
 // imageType determines which slot in referenceImages the photo is stored under.
 // This keeps reference photos separate from the user's chosen product display image.
 type ImageType = 'nutritionLabel' | 'ingredients' | 'frontOfPack';
+
+// Helper to check if nutrition is empty/incomplete
+function isNutritionIncomplete(n: any): boolean {
+  if (!n) return true;
+  return (n.sugar_g || 0) === 0 &&
+         (n.protein_g || 0) === 0 &&
+         (n.fat_g || 0) === 0 &&
+         (n.sodium_mg || 0) === 0 &&
+         (n.energy_kcal || 0) === 0;
+}
+
+// Helper to convert OFF format to our Firestore format
+function buildProductFromOFF(offProduct: any, barcode: string): Partial<NutritionData> {
+  const nutrients = offProduct.nutriments || {};
+  return {
+    name: offProduct.product_name || 'Unknown Product',
+    brand: offProduct.brands || offProduct.brands_tags?.[0] || 'Unknown Brand',
+    ingredients: offProduct.ingredients_text ? [offProduct.ingredients_text] : [],
+    nutrients: {
+      energy_kcal: nutrients['energy-kcal_100g'] || nutrients['energy-kcal'] || nutrients['energy_value'] || 0,
+      protein_g: nutrients.proteins_100g || nutrients.proteins || 0,
+      fat_g: nutrients.fat_100g || nutrients.fat || 0,
+      saturated_fat_g: nutrients['saturated-fat_100g'] || nutrients['saturated-fat'] || 0,
+      trans_fat_g: nutrients['trans-fat_100g'] || nutrients['trans-fat'] || 0,
+      carbohydrate_g: nutrients.carbohydrates_100g || nutrients.carbohydrates || 0,
+      sugar_g: nutrients.sugars_100g || nutrients.sugars || 0,
+      sodium_mg: (nutrients.sodium_100g || nutrients.sodium || 0) * 1000, 
+    },
+    productImageUrl: offProduct.image_url || offProduct.image_front_url || null,
+  };
+}
+
+// Helper to log scan locally
+async function logScanLocally(uid: string | undefined, product: any, grade: string, barcode?: string) {
+  if (!uid) return;
+  const db = getFirestore(getApp());
+  
+  // 1. Log to history
+  try {
+    await addDoc(collection(db, 'users', uid, 'scans'), {
+      barcode: barcode || product.barcode || 'manual',
+      name: product.name || 'Unknown Product',
+      brand: product.brand || 'Unknown Brand',
+      rating: grade,
+      timestamp: serverTimestamp(),
+    });
+  } catch (e) {
+    console.error('Failed to log scan history:', e);
+  }
+
+  // 2. Increment usage count
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const usageRef = doc(db, 'users', uid, 'usage', 'today'); 
+    
+    await runTransaction(db, async (transaction) => {
+      const docSnap = await transaction.get(usageRef);
+      if (!docSnap.exists) {
+        transaction.set(usageRef, { date: todayStr, count: 1 });
+      } else {
+        const data = docSnap.data();
+        if (data?.date === todayStr) {
+          transaction.update(usageRef, { count: data.count + 1 });
+        } else {
+          transaction.set(usageRef, { date: todayStr, count: 1 });
+        }
+      }
+    });
+  } catch (e) {
+    console.error('Failed to increment usage:', e);
+  }
+}
 
 export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -26,24 +102,29 @@ export default function ScanScreen() {
     imageType?: ImageType;
   }>();
 
-  const [mode, setMode] = useState<'barcode' | 'nutritionLabel' | 'processing'>('barcode');
-  const [currentBarcode, setCurrentBarcode] = useState<string | null>(null);
+  const [mode, setMode] = useState<'barcode' | 'nutritionLabel' | 'processing'>(initialMode === 'nutritionLabel' ? 'nutritionLabel' : 'barcode');
+  const [processingStep, setProcessingStep] = useState('');
+  const [currentBarcode, setCurrentBarcode] = useState<string | null>(initialBarcode || null);
+
+  // Sync mode and reset processing state when params change
+  useEffect(() => {
+    if (initialMode === 'nutritionLabel') {
+      setMode('nutritionLabel');
+      setCurrentBarcode(initialBarcode || null);
+    } else {
+      setMode('barcode');
+    }
+    setProcessingStep('');
+  }, [initialMode, initialBarcode]);
 
   // isUpdateMode = true means we are correcting an existing product (calls onOCRUpdate)
   // vs creating a new OCR product (calls onOCRSubmit)
   const isUpdate = isUpdateMode === 'true';
   const resolvedImageType: ImageType = (imageTypeParam as ImageType) || 'nutritionLabel';
 
-  const [processingStep, setProcessingStep] = useState<string>('');
-
   // Tab screens stay mounted — react to incoming params so the result screen
   // can deep-link us straight into nutrition-label mode with a pre-filled barcode.
-  useEffect(() => {
-    if (initialMode === 'nutritionLabel') {
-      setCurrentBarcode(initialBarcode || null);
-      setMode('nutritionLabel');
-    }
-  }, [initialMode, initialBarcode]);
+  // (Logic consolidated into the useEffect above)
 
   const cameraRef = useRef<CameraView>(null);
   const limitAlertShown = useRef(false);
@@ -52,6 +133,7 @@ export default function ScanScreen() {
   
   const { isPro } = useSubscription();
   const { count } = useScanCount();
+  const { user, profile } = useAuth();
 
   if (!permission) {
     return <View />;
@@ -103,47 +185,64 @@ export default function ScanScreen() {
     analytics.trackBarcodeDetected({ barcode: data, format: type });
     
     try {
-      const result = await functions().httpsCallable('onScanProduct')({ barcode: data });
-      const resultData = result.data as any;
-
-      if (resultData.found === false) {
-        // Product not found in OFF or local cache — prompt for label scan
-        Alert.alert(
-          'Product Not Found',
-          'This product is not in our database. Please take a photo of the Nutrition Label to analyze it.',
-          [{ text: 'OK', onPress: () => setMode('nutritionLabel') }]
-        );
-      } else if (resultData.isIncomplete) {
-        // Product found in OFF but has no nutritional data — guide user to scan label
-        Alert.alert(
-          'Nutrition Data Missing',
-          'This product was found, but its nutritional data is incomplete. Scan the nutrition label for an accurate health analysis.',
-          [
-            {
-              text: 'Scan Label',
-              onPress: () => {
-                setCurrentBarcode(data);
-                setMode('nutritionLabel');
-              },
-            },
-            {
-              text: 'View Anyway',
-              style: 'cancel',
-              onPress: () => {
-                router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(resultData) } });
-                setMode('barcode');
-              },
-            },
-          ]
-        );
-      } else {
-        // Normal successful scan
-        router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(result.data) } });
+      const db = getFirestore(getApp());
+      
+      // 1. Check database
+      setProcessingStep('Checking database...');
+      const productRef = doc(db, 'products', data);
+      const productSnap = await getDoc(productRef);
+      
+      if (productSnap.exists() && productSnap.data()?.isIncomplete !== true) {
+        const productData = productSnap.data() as Partial<NutritionData>;
+        const analysis = analyzeProduct(productData, profile);
+        await logScanLocally(user?.uid, productData, analysis.grade, data);
+        router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(analysis) } });
         setMode('barcode');
+        return;
       }
+
+      // 2. Fetch from Open Food Facts
+      setProcessingStep('Checking Open Food Facts...');
+      const offResponse = await fetch(`https://world.openfoodfacts.org/api/v2/product/${data}.json`);
+      const offData = await offResponse.json();
+
+      if (offData.status === 1 && offData.product) {
+        const productData = buildProductFromOFF(offData.product, data);
+        if (!isNutritionIncomplete(productData.nutrients)) {
+          const analysis = analyzeProduct(productData, profile);
+          await logScanLocally(user?.uid, productData, analysis.grade, data);
+          router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(analysis) } });
+          
+          // Fire-and-forget: Cache product to Firestore
+          functions().httpsCallable('cacheProduct')({ barcode: data, productData }).catch(e => console.log('Background cache failed:', e));
+          
+          setMode('barcode');
+          return;
+        }
+      }
+
+      // 3. Fallback: Request nutrition label scan
+      setMode('barcode');
+      const promptTitle = (offData.status === 1 && offData.product) ? 'Nutrition Data Missing' : 'Product Not Found';
+      const promptMsg = (offData.status === 1 && offData.product) 
+        ? 'This product was found, but its nutritional data is incomplete. Scan the nutrition label for an accurate health analysis.' 
+        : 'This product is not in our database. Please take a photo of the Nutrition Label to analyze it.';
+        
+      Alert.alert(
+        promptTitle,
+        promptMsg,
+        [
+          { text: 'Scan Label', onPress: () => { setCurrentBarcode(data); setMode('nutritionLabel'); } },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+      
     } catch (e) {
+      console.error(e);
       setMode('barcode');
       Alert.alert('Error', 'Failed to lookup product.');
+    } finally {
+      setProcessingStep('');
     }
   };
 
@@ -209,7 +308,11 @@ export default function ScanScreen() {
               });
             }
             
-            router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(response.data) } });
+            const rawProduct = response.data as Partial<NutritionData>;
+            const analysis = analyzeProduct(rawProduct, profile);
+            await logScanLocally(user?.uid, rawProduct, analysis.grade, barcode);
+            
+            router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(analysis) } });
             setMode('barcode');
             setProcessingStep('');
           } catch (e: any) {

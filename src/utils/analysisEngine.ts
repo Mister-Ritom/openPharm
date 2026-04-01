@@ -1,144 +1,127 @@
-import harmfulIngredientsList from '../../assets/data/harmfulIngredients.json';
-
-export type HealthProfile = 'general' | 'diabetic' | 'pcos' | 'heart' | 'child' | 'pregnant';
-export type Rating = 'A' | 'B' | 'C' | 'D' | 'E';
+import harmfulData from '../../assets/data/harmfulIngredients.json';
+import thresholdsData from '../../assets/data/nutritionalThresholds.json';
 
 export interface NutritionData {
-  energyKcal?: number;
-  totalSugarsG?: number;
-  totalFatG?: number;
-  saturatedFatG?: number;
-  sodiumMg?: number;
-  proteinG?: number;
-  carbohydratesG?: number;
-  ingredientsList: string;
+  name?: string;
+  brand?: string;
+  ingredients: string[];
+  nutrients: {
+    energy_kcal: number;
+    protein_g: number;
+    fat_g: number;
+    saturated_fat_g?: number;
+    trans_fat_g?: number;
+    carbohydrate_g?: number;
+    sugar_g: number;
+    sodium_mg: number;
+  };
+  healthScore?: number;
+  warnings: Array<{
+    ingredient: string;
+    reason: string;
+    severity: string;
+  }>;
+  grade?: 'A' | 'B' | 'C' | 'D' | 'E';
+  isEditable?: boolean;
+  labelImageUrl?: string;
+  productImageUrl?: string;
+  isIncomplete?: boolean;
 }
 
-export interface HarmfulIngredient {
+interface HarmfulIngredient {
   name: string;
   aliases: string[];
   eNumber?: string;
-  harmfulAbove?: string;
-  harmfulFor: HealthProfile[];
-  severity: 'low' | 'medium' | 'high';
+  harmfulFor: string[];
+  severity: string;
   description: string;
-  sources: string[];
 }
 
-export interface ProfileAnalysis {
-  rating: Rating;
-  primaryConcern: string | null;
-  safeServingSize: string;
-}
+const HARMFUL_LIST = harmfulData as unknown as HarmfulIngredient[];
+const THRESHOLDS = thresholdsData as any;
 
-export interface AnalysisResult {
-  ratings: Record<HealthProfile, ProfileAnalysis>;
-  sugarTeaspoons: number;
-  harmfulIngredientsFound: HarmfulIngredient[];
-}
+export function analyzeProduct(data: Partial<NutritionData>, userProfile?: any): any {
+  const warnings: Array<{ ingredient: string, reason: string, severity: string }> = [];
+  let score = 100;
 
-export function analyzeProduct(data: NutritionData): AnalysisResult {
-  const ingredientsLower = data.ingredientsList.toLowerCase();
+  const userConditions = userProfile?.healthProfiles || ['general'];
   
-  // 1. Identify Harmful Ingredients
-  const foundIngredients: HarmfulIngredient[] = [];
-  for (const item of harmfulIngredientsList as HarmfulIngredient[]) {
-    const isNameMatch = ingredientsLower.includes(item.name.toLowerCase());
-    const isAliasMatch = item.aliases.some(alias => ingredientsLower.includes(alias.toLowerCase()));
-    const isENumberMatch = item.eNumber && ingredientsLower.includes(item.eNumber.toLowerCase());
-    
-    if (isNameMatch || isAliasMatch || isENumberMatch) {
-      foundIngredients.push(item);
+  if (data.ingredients) {
+    data.ingredients.forEach(ing => {
+      const ingLower = ing.toLowerCase();
+      
+      const found = HARMFUL_LIST.find(h => 
+        ingLower.includes(h.name.toLowerCase()) || 
+        h.aliases?.some(a => ingLower.includes(a.toLowerCase())) ||
+        (h.eNumber && ingLower.includes(h.eNumber.toLowerCase()))
+      );
+
+      if (found) {
+        const isHarmfulForUser = found.harmfulFor.some(c => userConditions.includes(c));
+        if (isHarmfulForUser) {
+          warnings.push({
+            ingredient: found.name,
+            reason: found.description,
+            severity: found.severity
+          });
+
+          // Weight score reduction by severity
+          if (found.severity === 'high') score -= 25;
+          else if (found.severity === 'medium') score -= 15;
+          else score -= 5;
+        }
+      }
+    });
+  }
+
+  // Nutritional penalties ("Dosage" checks)
+  const sugar = data.nutrients?.sugar_g || 0;
+  const sodium = data.nutrients?.sodium_mg || 0;
+  const satFat = data.nutrients?.fat_g || 0; // Simplified fat check as Sat Fat might missing
+  const protein = data.nutrients?.protein_g || 0;
+
+  userConditions.forEach((condition: string) => {
+    const limits = THRESHOLDS[condition] || THRESHOLDS.general;
+    if (sugar > limits.max_sugar_g) {
+      warnings.push({ 
+        ingredient: 'Sugar', 
+        reason: `Exceeds your ${condition} limit of ${limits.max_sugar_g}g. High sugar spikes insulin.`, 
+        severity: 'high' 
+      });
+      score -= 20;
     }
-  }
+    if (sodium > limits.max_sodium_mg) {
+      warnings.push({ 
+        ingredient: 'Sodium', 
+        reason: `Exceeds your ${condition} limit of ${limits.max_sodium_mg}mg. Increases blood pressure.`, 
+        severity: 'medium' 
+      });
+      score -= 10;
+    }
+    if (satFat > (limits.max_sat_fat_g || 10)) {
+      warnings.push({ 
+        ingredient: 'Fat', 
+        reason: `Exceeds your ${condition} recommended fat limit.`, 
+        severity: 'low' 
+      });
+      score -= 5;
+    }
+    if (protein < (limits.min_protein_g || 0) && protein > 0) {
+       // Not a warning, just context or slight deduction if it's meant to be high protein
+    }
+  });
 
-  // 2. Sugar equivalent 
-  const sugarTeaspoons = (data.totalSugarsG || 0) / 4;
-
-  // 3. Generate Profile Ratings
-  const profiles: HealthProfile[] = ['general', 'diabetic', 'pcos', 'heart', 'child', 'pregnant'];
-  const ratings = {} as Record<HealthProfile, ProfileAnalysis>;
-
-  for (const profile of profiles) {
-    ratings[profile] = computeProfileRating(profile, data, foundIngredients, sugarTeaspoons);
-  }
+  let grade: 'A' | 'B' | 'C' | 'D' | 'E' = 'C';
+  if (score >= 90) grade = 'A';
+  else if (score >= 70) grade = 'B';
+  else if (score >= 50) grade = 'C';
+  else if (score >= 30) grade = 'D';
+  else grade = 'E';
 
   return {
-    ratings,
-    sugarTeaspoons,
-    harmfulIngredientsFound: foundIngredients,
+    ...data,
+    healthScore: Math.max(0, score),
+    warnings,
+    grade
   };
-}
-
-function computeProfileRating(profile: HealthProfile, data: NutritionData, foundIngredients: HarmfulIngredient[], sugarTeaspoons: number): ProfileAnalysis {
-  let scorePoints = 100;
-  let primaryConcern: string | null = null;
-  
-  // Penalize for sugar
-  if (data.totalSugarsG) {
-    if (profile === 'diabetic' || profile === 'pcos') {
-      if (data.totalSugarsG > 5) {
-        scorePoints -= 40;
-        primaryConcern = "High sugar content for insulin sensitivity.";
-      }
-    } else if (profile === 'child') {
-      if (data.totalSugarsG > 10) {
-        scorePoints -= 30;
-        primaryConcern = "Excessive sugar for children.";
-      }
-    } else {
-      if (data.totalSugarsG > 15) {
-        scorePoints -= 20;
-        primaryConcern = "High sugar content.";
-      }
-    }
-  }
-
-  // Penalize for Sodium
-  if (data.sodiumMg) {
-    if (data.sodiumMg > 600) {
-      const penalty = profile === 'heart' ? 40 : 15;
-      scorePoints -= penalty;
-      if (!primaryConcern || profile === 'heart') primaryConcern = "High sodium, dangerous for heart conditions.";
-    }
-  }
-
-  // Penalize for Saturated Fat
-  if (data.saturatedFatG) {
-    if (data.saturatedFatG > 5) {
-      const penalty = profile === 'heart' ? 30 : 10;
-      scorePoints -= penalty;
-      if (!primaryConcern || profile === 'heart') primaryConcern = "High saturated fat.";
-    }
-  }
-
-  // Penalize for specific harmful ingredients
-  for (const ingredient of foundIngredients) {
-    if (ingredient.harmfulFor.includes(profile) || ingredient.harmfulFor.includes('general')) {
-      if (ingredient.severity === 'high') scorePoints -= 30;
-      else if (ingredient.severity === 'medium') scorePoints -= 15;
-      else scorePoints -= 5;
-
-      if (!primaryConcern || ingredient.severity === 'high') {
-        primaryConcern = `Contains ${ingredient.name}: ${ingredient.description}`;
-      }
-    }
-  }
-
-  let rating: Rating = 'A';
-  if (scorePoints >= 80) rating = 'A';
-  else if (scorePoints >= 60) rating = 'B';
-  else if (scorePoints >= 40) rating = 'C';
-  else if (scorePoints >= 20) rating = 'D';
-  else rating = 'E';
-
-  // Safe serving recommendation logic
-  let safeServingSize = '1 standard serving (approx 30g)';
-  if (rating === 'D' || rating === 'E') {
-    safeServingSize = 'Avoid if possible, or limit to 10g max.';
-  } else if (rating === 'A') {
-    safeServingSize = 'Free to consume moderately as part of a balanced diet.';
-  }
-
-  return { rating, primaryConcern, safeServingSize };
 }

@@ -195,22 +195,21 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 
 ### Product Analysis Pipeline
 
-**Barcode scan path:**
-1. User scans barcode → `scan.tsx` calls `onScanProduct` Cloud Function with `{ barcode }`
-2. Function hits **Open Food Facts API** first (`https://world.openfoodfacts.org/api/v2/product/{barcode}.json`)
-3. If found: builds `NutritionData`, checks if all major nutrients are zero → sets `isIncomplete: true` if so. Runs `analyzeProduct()`, caches in Firestore `/products/{barcode}`, logs to `/users/{uid}/scans`
-4. If `isIncomplete`: UI shows **"Nutrition Data Missing"** alert with options "Scan Label" (switches to label mode) or "View Anyway" (proceeds to result with warning banner visible)
-5. If not found in OFF: checks local Firestore cache `/products/{barcode}`
-6. If still not found: returns `{ found: false }` → UI prompts user to switch to nutrition label mode
+**Barcode scan path (Local-First):**
+1. User scans barcode → `scan.tsx` checks **cloud Firestore** `/products/{barcode}` using `getDocFromServer()` to bypass stale local cache.
+2. If found and complete: Runs `analyzeProduct()` on-device using local `nutritionalThresholds.json` and logs scan locally to `/users/{uid}/scans`.
+3. If not found in cloud: Client fetches directly from **Open Food Facts API** (`https://world.openfoodfacts.org/api/v2/product/{barcode}.json`).
+4. If OFF data is complete: Client runs `analyzeProduct()`, logs scan, and triggers fire-and-forget `cacheProduct` Cloud Function to cache for others.
+5. If tracking data is `isIncomplete` or missing entirely: UI prompts user with **"Nutrition Data Missing"** or **"Product Not Found"** and switches to nutrition label mode.
 
 **OCR / Nutrition label path (new product):**
-1. User takes photo → on-device OCR via `@react-native-ml-kit/text-recognition`
-2. Photo uploaded to Firebase Storage at `{barcode}/ref_{imageType}.jpg` (e.g. `ref_nutritionLabel.jpg`)
-3. `onOCRSubmit` Cloud Function called with `{ barcode, ocrText, labelImageUrl, imageType }`
-4. Server-side: `parseNutritionOCR(ocrText, GEMINI_API_KEY)` refines OCR with Gemini AI
-5. Runs `analyzeProduct()`, saves with `isEditable: true`, `isIncomplete: false`
-6. Photo URL stored in `referenceImages[imageType]` — **not** `productImageUrl`
-7. Logs scan to history
+1. User takes photo → optional on-device OCR via `@react-native-ml-kit/text-recognition`.
+2. Photo uploaded to Firebase Storage at `{barcode}/ref_{imageType}.jpg` (e.g. `ref_nutritionLabel.jpg`).
+3. `onOCRSubmit` Cloud Function called with `{ barcode, ocrText, labelImageUrl, imageType }`.
+4. Server-side: `parseNutritionOCR(ocrText, GEMINI_API_KEY)` refines OCR with Gemini AI and saves raw data, setting `isEditable: true`, `isIncomplete: false`.
+5. Cloud Function **returns the raw product data directly** back to the client.
+6. Client-side: `analyzeProduct()` is run locally on the **returned data** (saving an extra read call) and logs the scan.
+7. Photo URL stored in `referenceImages[imageType]` — **not** `productImageUrl`.
 
 **OCR correction path (existing product):**
 1. User taps **"Something look wrong?"** or the incomplete-data banner in `result.tsx`
@@ -343,4 +342,6 @@ Common events tracked:
 7. **`productImageUrl` vs `referenceImages`**: `productImageUrl` is ONLY set when the user explicitly picks a photo from their gallery in `result.tsx`. Nutrition label photos taken during OCR scans are stored in `product.referenceImages` (e.g. `referenceImages.nutritionLabel`) and in Firebase Storage as `{barcode}/ref_{imageType}.jpg`. They are never set as the product display image.
 8. **`onOCRUpdate` vs `onOCRSubmit`**: `onOCRUpdate` is used for corrections to existing products (does not count against scan limit). `onOCRSubmit` creates a new product record. Both are triggered from `scan.tsx`, routed by the `isUpdateMode` param.
 9. **Function from `app/_layout.tsx`**: `configureRevenueCat()` is called once on mount; `syncRevenueCatUser(uid)` and `posthog.identify(uid)` are called whenever the auth user changes to keep analytics and subscriptions in sync.
-10. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.
+11. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.
+12. **Correction Banner Visibility**: The "Something look wrong?" banner in `result.tsx` appears if `product.isEditable === true` OR if `product.isIncomplete === true`. This allows users to "fix" incomplete data even for products sourced from OpenFoodFacts that are otherwise locked.
+13. **Stale Cache Prevention**: All barcode lookups in `scan.tsx` use `getDocFromServer()` to ensure that updates made via Cloud Functions are immediately visible to the client upon the next scan.

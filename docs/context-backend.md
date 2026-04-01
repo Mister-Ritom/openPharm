@@ -164,7 +164,9 @@ File: `firestore.rules`
 
 | Path | Read | Write |
 |------|------|-------|
-| `/users/{uid}/**` | Auth + own UID only | Auth + own UID only |
+| `/users/{uid}/**` | Auth + own UID only | Auth + own UID only (Except for scans and usage) |
+| `/users/{uid}/usage/{docId}` | Auth + own UID only | Increment operations only by client |
+| `/users/{uid}/scans/{scanId}`| Auth + own UID only | Create only by client |
 | `/products/{barcode}` | Any authenticated user | `false` (Cloud Functions only) |
 | `/reports/{reportId}` | `false` | Any authenticated user (create only) |
 | `/ingredients/{slug}` | Any authenticated user | `false` |
@@ -194,21 +196,19 @@ Uploads are done from the client using `storage().ref(path).putFile(localUri)`.
 
 All exports live in `functions/src/index.ts`. The functions package has its own `package.json` and `tsconfig.json` inside `functions/`.
 
-### `onScanProduct` — v2 HTTPS Callable
+### `cacheProduct` — v2 HTTPS Callable (Replaces `onScanProduct`)
 
-**Trigger**: Client call `functions().httpsCallable('onScanProduct')({ barcode })`
+**Trigger**: Client call `functions().httpsCallable('cacheProduct')({ barcode, productData })`
 **Auth**: Required (`unauthenticated` error if no auth)
 **Timeout**: 30 seconds
+**Purpose**: Background caching of product data fetched directly by the client from Open Food Facts.
 
 **Flow**:
-1. Increment usage counter (`incrementUserScanCount`)
-2. Fetch user profile from Firestore
-3. Try Open Food Facts API
-4. If found: build `NutritionData`, run `analyzeProduct(rawData, profile)`, cache in `/products`, log to `/users/{uid}/scans`, return merged result
-5. If not found: check Firestore `/products/{barcode}` cache
-6. If still not found: return `{ found: false, barcode }`
+1. Save the `productData` to Firestore `/products/{barcode}`.
 
-**Returns**: Product + analysis merged object (same shape as `/products/{barcode}` + analysis fields like `grade`, `warnings`, `ratings`)
+**Returns**: `{ success: true }`
+
+*(Note: `onScanProduct` is deprecated and throws an error if called by older clients.)*
 
 ---
 
@@ -219,14 +219,12 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 **Runtime**: 60s timeout, 512MB memory
 
 **Flow**:
-1. Increment usage counter
+1. Increment usage counter (Now handled on client-side)
 2. Call `parseNutritionOCR(ocrText, GEMINI_API_KEY)` — uses Gemini API key for AI-enhanced parsing
-3. Get user profile for personalized analysis
-4. Run `analyzeProduct(rawData, profile)`
-5. Save product with `isEditable: true`, `isIncomplete: false`, `productImageUrl: null`
-6. Stores label photo URL in `referenceImages[imageType]` (default: `nutritionLabel`) — **not** `productImageUrl`
-7. Log to `/users/{uid}/scans`
-8. Return merged product + analysis
+3. Save product with `isEditable: true`, `isIncomplete: false`, `productImageUrl: null`
+4. Stores label photo URL in `referenceImages[imageType]` (default: `nutritionLabel`) — **not** `productImageUrl`
+5. **Returns the full, parsed product JSON directly** to the client.
+6. (Client runs `analyzeProduct` locally on this returned data, **saving one Firestore read call**).
 
 **Gemini key**: `process.env.GEMINI_API_KEY` (should be a Firebase Secret in production) — currently has a fallback hardcoded key in source.
 
@@ -251,7 +249,8 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 2. Fetch existing product from Firestore
 3. Merge new nutrient data + metadata into the existing doc
 4. Update `referenceImages[imageType]` with new photo URL
-5. Return fully updated product + fresh analysis
+5. **Returns the fully updated product JSON** to the client.
+6. (Client performs analysis locally on this returned data to ensure instant UI updates).
 
 ---
 

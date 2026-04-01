@@ -12,7 +12,8 @@ Powered by the OpenFoodFacts database and advanced Gemini AI OCR, OpenPharma del
 
 **Key Features:**
 - Instant Barcode Scanning for millions of products.
-- AI OCR Label parsing if a product isn't currently in our database.
+- AI OCR Label parsing if a product isn't currently in our database or if existing data is incomplete.
+- A "Something look wrong?" correction flow that allows users to instantly override incorrect or missing data with a fresh photo scan.
 - Traffic Light clinical ratings (A-E) to easily tell if a product is healthy.
 - Customizable Health Profiles to see specifically what impacts YOU.
 - OpenPharma Pro layer for unlimited, ad-free access to advanced analytics.

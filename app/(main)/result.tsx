@@ -27,6 +27,14 @@ export default function ResultScreen() {
 
   const initialProduct = JSON.parse(data as string);
   const [product, setProduct] = useState(initialProduct);
+
+  // Sync state when data param changes (e.g. from a re-scan)
+  useEffect(() => {
+    const freshProduct = JSON.parse(data as string);
+    setProduct(freshProduct);
+    setPendingUpdates({});
+  }, [data]);
+
   const [pendingUpdates, setPendingUpdates] = useState<any>({});
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
@@ -385,25 +393,21 @@ export default function ResultScreen() {
         </Card>
 
         {/* ── Fix Data Banner ── */}
-        {/*
-          "Something look wrong?" — now correctly calls onOCRUpdate via isUpdateMode param.
-          This updates the existing product record (setting isEditable: true, dataSource: OCR+AI)
-          instead of creating a new one.
-        */}
-        <TouchableOpacity
-          style={styles.fixBanner}
-          activeOpacity={0.75}
-          onPress={() =>
-            router.push({
-              pathname: "/(main)/scan",
-              params: {
-                initialMode: "nutritionLabel",
-                initialBarcode: product.barcode,
-                isUpdateMode: "true",
-              },
-            })
-          }
-        >
+        {(isEditable || isIncomplete) && (
+          <TouchableOpacity
+            style={styles.fixBanner}
+            activeOpacity={0.75}
+            onPress={() =>
+              router.push({
+                pathname: "/(main)/scan",
+                params: {
+                  initialMode: "nutritionLabel",
+                  initialBarcode: product.barcode,
+                  isUpdateMode: "true",
+                },
+              })
+            }
+          >
           <View style={styles.fixBannerIconWrap}>
             <Ionicons
               name="camera-outline"
@@ -423,6 +427,7 @@ export default function ResultScreen() {
             color={theme.colors.outline}
           />
         </TouchableOpacity>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
