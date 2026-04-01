@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, Text, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { theme } from '../../src/theme/designSystem';
 
 export default function PrivacyScreen() {
@@ -35,7 +35,7 @@ export default function PrivacyScreen() {
       
       <Text style={styles.heading}>6. Contact Us</Text>
       <Text style={styles.paragraph}>
-        For privacy inquiries, please email contact@pharma.ritom.in.
+        For privacy inquiries, please email ritomghosh856@gmail.com.
       </Text>
     </ScrollView>
   );
