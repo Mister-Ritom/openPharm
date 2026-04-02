@@ -1,5 +1,5 @@
 import { getApp } from '@react-native-firebase/app';
-import { addDoc, collection, doc, getDoc, getDocFromServer, getFirestore, runTransaction, serverTimestamp } from '@react-native-firebase/firestore';
+import { addDoc, collection, doc, getDocFromServer, getFirestore, runTransaction, serverTimestamp } from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
 import storage from '@react-native-firebase/storage';
 import TextRecognition from '@react-native-ml-kit/text-recognition';

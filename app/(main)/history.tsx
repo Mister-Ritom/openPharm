@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React from 'react';
 import { View, Text, StyleSheet, FlatList } from 'react-native';
 import { theme } from '../../src/theme/designSystem';
@@ -9,6 +10,7 @@ import { getApp } from '@react-native-firebase/app';
 import { format } from 'date-fns';
 
 export default function HistoryScreen() {
+  const router = useRouter();
   const { user } = useAuth();
   const [history, setHistory] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -60,7 +62,14 @@ export default function HistoryScreen() {
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
-            <Card style={styles.card} variant="elevated">
+            <Card 
+              style={styles.card} 
+              variant="elevated"
+              onPress={() => router.push({
+                pathname: "/(main)/result",
+                params: { barcode: item.barcode }
+              })}
+            >
               <View style={styles.cardInfo}>
                 <Text style={styles.productName} numberOfLines={1}>{item.name || 'Unknown Product'}</Text>
                 <Text style={styles.brandName}>{item.brand || 'No Brand'}</Text>

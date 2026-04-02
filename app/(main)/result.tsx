@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { getApp } from "@react-native-firebase/app";
+import { getDoc, getFirestore, doc } from "@react-native-firebase/firestore";
 import functions from "@react-native-firebase/functions";
 import storage from "@react-native-firebase/storage";
 import * as ImagePicker from "expo-image-picker";
@@ -14,6 +16,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { analyzeProduct } from "../../src/utils/analysisEngine";
+import { useAuth } from "../../src/hooks/useAuth";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../../src/components/ui/Button";
 import { Card } from "../../src/components/ui/Card";
@@ -22,22 +26,80 @@ import { RatingBadge } from "../../src/components/ui/RatingBadge";
 import { theme } from "../../src/theme/designSystem";
 
 export default function ResultScreen() {
-  const { data } = useLocalSearchParams();
+  const { data, barcode } = useLocalSearchParams<{ data?: string; barcode?: string }>();
   const router = useRouter();
+  const { profile } = useAuth();
 
-  const initialProduct = JSON.parse(data as string);
-  const [product, setProduct] = useState(initialProduct);
+  const [product, setProduct] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Sync state when data param changes (e.g. from a re-scan)
+  // Initial data load and sync (e.g. from re-scan)
   useEffect(() => {
-    const freshProduct = JSON.parse(data as string);
-    setProduct(freshProduct);
+    async function loadData() {
+      try {
+        if (data) {
+          // 1. If we have encoded data (direct from ScanScreen)
+          const parsed = JSON.parse(data as string);
+          setProduct(parsed);
+          setLoading(false);
+          setError(null);
+        } else if (barcode) {
+          // 2. If we only have a barcode (from History or Home)
+          setLoading(true);
+          const db = getFirestore(getApp());
+          const productSnap = await getDoc(doc(db, "products", barcode as string));
+
+          if (productSnap.exists()) {
+            const rawProduct = productSnap.data();
+            const analysis = analyzeProduct(rawProduct as any, profile);
+            setProduct(analysis);
+          } else {
+            setError("Product not found");
+          }
+          setLoading(false);
+        } else {
+          // No data and no barcode
+          setLoading(false);
+          setError("No product selected");
+        }
+      } catch (err) {
+        console.error("Result load failed:", err);
+        setError("Failed to load product data");
+        setLoading(false);
+      }
+    }
+
+    loadData();
     setPendingUpdates({});
-  }, [data]);
+  }, [data, barcode, profile]);
 
   const [pendingUpdates, setPendingUpdates] = useState<any>({});
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.centerLoading}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.loadingText}>Loading Analysis...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error || !product) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.centerLoading}>
+          <Ionicons name="alert-circle-outline" size={48} color={theme.colors.error} />
+          <Text style={[styles.loadingText, { color: theme.colors.error }]}>{error || "Product not found"}</Text>
+          <Button title="Go Back" onPress={() => router.back()} style={{ marginTop: 20 }} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const isEditable = product.isEditable !== false;
   const isIncomplete = product.isIncomplete === true;
@@ -159,8 +221,6 @@ export default function ResultScreen() {
 
     return () => clearTimeout(timer);
   }, [pendingUpdates, isUploadingImage, product.barcode]);
-
-  if (!data) return <View style={styles.safe} />;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -632,5 +692,17 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.bodySm,
     color: theme.colors.onSurfaceVariant,
     marginTop: 2,
+  },
+  centerLoading: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  loadingText: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: theme.typography.sizes.bodyLg,
+    color: theme.colors.onSurfaceVariant,
+    marginTop: theme.spacing[4],
   },
 });

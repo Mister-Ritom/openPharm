@@ -132,7 +132,7 @@ export default function HomeScreen() {
                   variant="elevated"
                   onPress={() => router.push({
                     pathname: "/(main)/result",
-                    params: { id: item.id }
+                    params: { barcode: item.barcode }
                   })}
                 >
                   <View style={styles.cardInfo}>
