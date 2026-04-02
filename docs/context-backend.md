@@ -123,7 +123,8 @@ Product data cache. Populated by `onScanProduct` (OpenFoodFacts), `onOCRSubmit` 
   // Deprecated — use referenceImages.nutritionLabel instead:
   labelImageUrl?: string,
   dataSource: 'OpenFoodFacts' | 'OCR+AI',
-  isEditable: boolean,         // false for OFF products, true for OCR/corrected products.
+  isEditable: boolean,         // true for most products to allow user corrections.
+                               // Set to false only by admins for verified clinical data.
   isIncomplete: boolean,       // true when OFF returned the product but all major nutrients are 0.
                                // Prompts user to scan the nutrition label.
   flaggedForReview?: boolean,  // Set if 3+ reports exist for this barcode

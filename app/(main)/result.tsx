@@ -39,7 +39,7 @@ export default function ResultScreen() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
 
-  const isEditable = product.isEditable;
+  const isEditable = product.isEditable !== false;
   const isIncomplete = product.isIncomplete === true;
   const rating = product.grade || "C";
   const nutrients = product.nutrients || {};

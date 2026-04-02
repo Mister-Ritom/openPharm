@@ -1,5 +1,5 @@
 import { getApp } from '@react-native-firebase/app';
-import { addDoc, collection, doc, getDoc, getFirestore, runTransaction, serverTimestamp } from '@react-native-firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocFromServer, getFirestore, runTransaction, serverTimestamp } from '@react-native-firebase/firestore';
 import functions from '@react-native-firebase/functions';
 import storage from '@react-native-firebase/storage';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
@@ -49,6 +49,7 @@ function buildProductFromOFF(offProduct: any, barcode: string): Partial<Nutritio
       sodium_mg: (nutrients.sodium_100g || nutrients.sodium || 0) * 1000, 
     },
     productImageUrl: offProduct.image_url || offProduct.image_front_url || null,
+    isEditable: true,
   };
 }
 
@@ -190,10 +191,13 @@ export default function ScanScreen() {
       // 1. Check database
       setProcessingStep('Checking database...');
       const productRef = doc(db, 'products', data);
-      const productSnap = await getDoc(productRef);
+      const productSnap = await getDocFromServer(productRef);
       
       if (productSnap.exists() && productSnap.data()?.isIncomplete !== true) {
-        const productData = productSnap.data() as Partial<NutritionData>;
+        const productData = {
+          ...productSnap.data() as Partial<NutritionData>,
+          isEditable: (productSnap.data()?.isEditable !== false),
+        };
         const analysis = analyzeProduct(productData, profile);
         await logScanLocally(user?.uid, productData, analysis.grade, data);
         router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(analysis) } });

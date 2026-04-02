@@ -199,7 +199,7 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 1. User scans barcode → `scan.tsx` checks **cloud Firestore** `/products/{barcode}` using `getDocFromServer()` to bypass stale local cache.
 2. If found and complete: Runs `analyzeProduct()` on-device using local `nutritionalThresholds.json` and logs scan locally to `/users/{uid}/scans`.
 3. If not found in cloud: Client fetches directly from **Open Food Facts API** (`https://world.openfoodfacts.org/api/v2/product/{barcode}.json`).
-4. If OFF data is complete: Client runs `analyzeProduct()`, logs scan, and triggers fire-and-forget `cacheProduct` Cloud Function to cache for others.
+4. If OFF data is complete: Client runs `analyzeProduct()`, logs scan, and triggers fire-and-forget `cacheProduct` Cloud Function to cache for others. **Cached products are set to `isEditable: true` by default.**
 5. If tracking data is `isIncomplete` or missing entirely: UI prompts user with **"Nutrition Data Missing"** or **"Product Not Found"** and switches to nutrition label mode.
 
 **OCR / Nutrition label path (new product):**
@@ -337,7 +337,7 @@ Common events tracked:
 2. **Stylesheet convention**: all styles are via `StyleSheet.create({...})` at the bottom of the file.
 3. **No global state management** (Zustand store dir is empty); local state + hooks cover everything.
 4. **Cloud Functions are called from the client via `functions().httpsCallable('functionName')(data)`** — never direct Firestore writes for business-critical ops.
-5. **`isEditable` flag**: Products from OpenFoodFacts have `isEditable: false`. Products created via OCR (`onOCRSubmit`) or corrected via re-scan (`onOCRUpdate`) have `isEditable: true`. Only editable products can be updated via `updateProduct` function.
+5. **`isEditable` flag**: Products from OpenFoodFacts previously had `isEditable: false`, but are now set to `isEditable: true` by default to allow user corrections. Only products manually locked by admins get `isEditable: false`.
 6. **`isIncomplete` flag**: Products from OpenFoodFacts where all major nutrients are 0 get `isIncomplete: true`. The result screen shows a red warning banner, and `scan.tsx` shows an alert during the barcode scan flow.
 7. **`productImageUrl` vs `referenceImages`**: `productImageUrl` is ONLY set when the user explicitly picks a photo from their gallery in `result.tsx`. Nutrition label photos taken during OCR scans are stored in `product.referenceImages` (e.g. `referenceImages.nutritionLabel`) and in Firebase Storage as `{barcode}/ref_{imageType}.jpg`. They are never set as the product display image.
 8. **`onOCRUpdate` vs `onOCRSubmit`**: `onOCRUpdate` is used for corrections to existing products (does not count against scan limit). `onOCRSubmit` creates a new product record. Both are triggered from `scan.tsx`, routed by the `isUpdateMode` param.
