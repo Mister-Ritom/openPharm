@@ -67,6 +67,9 @@ export default function SetupProfileScreen() {
         uid: user.uid,
       };
 
+      // Update Firebase Auth display name for consistency across the app
+      await user.updateProfile({ displayName: displayName });
+
       await setDoc(doc(db, 'users', user.uid), profileData);
       
       // Update local storage too so RootLayout sees it immediately

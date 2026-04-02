@@ -1,22 +1,28 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
+import { View, StyleSheet, ViewStyle, Pressable } from 'react-native';
 import { theme } from '../../theme/designSystem';
 
 interface CardProps {
   children: React.ReactNode;
   style?: ViewStyle;
   variant?: 'elevated' | 'flat';
+  onPress?: () => void;
 }
 
-export function Card({ children, style, variant = 'flat' }: CardProps) {
+export function Card({ children, style, variant = 'flat', onPress }: CardProps) {
+  const CardContainer = onPress ? Pressable : View;
+
   return (
-    <View style={[
-      styles.card,
-      variant === 'elevated' && styles.elevated,
-      style,
-    ]}>
+    <CardContainer 
+      onPress={onPress}
+      style={[
+        styles.card,
+        variant === 'elevated' && styles.elevated,
+        style,
+      ]}
+    >
       {children}
-    </View>
+    </CardContainer>
   );
 }
 

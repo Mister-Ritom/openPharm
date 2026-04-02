@@ -58,7 +58,7 @@
 
 <section id="reviews" class="reviews-section">
   <div class="container">
-    <h2 class="section-title text-center">What Explorers Say</h2>
+    <h2 class="section-title text-center">What Users Say</h2>
     <div class="review-grid">
       <div class="review-card glass">
         <div class="stars">★★★★★</div>
