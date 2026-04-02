@@ -111,8 +111,11 @@ Product data cache. Populated by `onScanProduct` (OpenFoodFacts), `onOCRSubmit` 
     trans_fat_g: number,
     sugar_g: number,
     sodium_mg: number,
+    fiber_g?: number,          // Added in v3
+    cholesterol_mg?: number,    // Added in v3
   },
-  warnings: any[],             // Populated by analyzeProduct()
+  // NOTE: warnings and healthScore are NO LONGER stored in Firestore. 
+  // They are calculated dynamically by the client-side analysisEngine.ts.
   productImageUrl?: string,    // ONLY set when user explicitly picks from gallery in result screen.
                                // Never set by OCR or barcode scan flows.
   referenceImages?: {          // Map of reference scan photos for debugging/review.
@@ -133,6 +136,9 @@ Product data cache. Populated by `onScanProduct` (OpenFoodFacts), `onOCRSubmit` 
   updatedAt?: Timestamp,
 }
 ```
+
+> [!IMPORTANT]
+> **Client-Side Analysis**: The backend stores only **raw nutritional data**. The `analyzeProduct()` utility (found in `src/utils/analysisEngine.ts`) MUST be run by the client to generate warnings, grades, and health scores. This ensures analysis is always dynamic based on the user's latest health profile.
 
 **Security**: Direct client writes are `false`. All writes go via Cloud Functions.
 
@@ -221,13 +227,15 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 
 **Flow**:
 1. Increment usage counter (Now handled on client-side)
-2. Call `parseNutritionOCR(ocrText, GEMINI_API_KEY)` — uses Gemini API key for AI-enhanced parsing
+2. Call `parseNutritionOCR(ocrText, labelImageUrl, GEMINI_API_KEY)` — uses Gemini API key for AI-enhanced parsing
 3. Save product with `isEditable: true`, `isIncomplete: false`, `productImageUrl: null`
-4. Stores label photo URL in `referenceImages[imageType]` (default: `nutritionLabel`) — **not** `productImageUrl`
+4. Stores label photo URL in `referenceImages[imageType]` (default: `nutritionLabel`)
 5. **Returns the full, parsed product JSON directly** to the client.
-6. (Client runs `analyzeProduct` locally on this returned data, **saving one Firestore read call**).
+6. (Client runs `analyzeProduct` locally on this returned data).
 
-**Gemini key**: `process.env.GEMINI_API_KEY` (should be a Firebase Secret in production) — currently has a fallback hardcoded key in source.
+**Note**: This function NO LONGER performs analysis. It only extracts raw data.
+
+**Gemini key**: `process.env.GEMINI_API_KEY` (should be a Firebase Secret in production).
 
 ---
 
@@ -251,7 +259,9 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 3. Merge new nutrient data + metadata into the existing doc
 4. Update `referenceImages[imageType]` with new photo URL
 5. **Returns the fully updated product JSON** to the client.
-6. (Client performs analysis locally on this returned data to ensure instant UI updates).
+6. (Client performs analysis locally on this returned data).
+
+**Note**: Like `onOCRSubmit`, this function is and only extracts raw data updates.
 
 ---
 
@@ -300,6 +310,18 @@ Runs `every day 00:00`. Currently only logs. Actual scan count reset is lazy (do
 
 **Trigger**: On new document created in `reports/{reportId}`
 **Effect**: If ≥3 reports exist for a barcode, sets `flaggedForReview: true` on `/products/{barcode}`
+
+---
+
+## Deleted / Deprecated Logic
+
+### Backend Analysis Engine (DELETED)
+The file `functions/src/utils/analysisEngine.ts` and its associated data files (`harmfulIngredients.json`, `nutritionalThresholds.json`) were deleted in April 2026. 
+
+**Rationale**:
+1. **Latency**: Moving analysis to the client removes a round-trip to the server.
+2. **Dynamicity**: Nutritional warnings depend on the user's health profile (diabetic, heart disease, etc.). Performing this on the client allows for instant updates as users change their profiles without re-fetching product data.
+3. **Threshold v3 Migration**: The application now uses a robust `v3` nutritional threshold dataset (stored in `assets/data/nutritionalThresholds.json`) which supports advanced factors like Trans Fat, Fiber, and Cholesterol.
 
 ---
 
