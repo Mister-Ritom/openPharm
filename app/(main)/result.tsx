@@ -77,7 +77,69 @@ export default function ResultScreen() {
   const [pendingUpdates, setPendingUpdates] = useState<any>({});
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("");
+  const [expandedSources, setExpandedSources] = useState<Record<number, boolean>>({});
 
+  const toggleSource = (idx: number) => {
+    setExpandedSources((prev) => ({
+      ...prev,
+      [idx]: !prev[idx],
+    }));
+  };
+
+  // ── Rules of Hooks: Define all hooks before early returns ──
+
+  // Reference to hold pending updates for unmount flushing
+  const pendingUpdatesRef = useRef(pendingUpdates);
+  useEffect(() => {
+    pendingUpdatesRef.current = pendingUpdates;
+  }, [pendingUpdates]);
+
+  // Flush pending updates when user navigates away (component unmounts)
+  useEffect(() => {
+    return () => {
+      const remainingUpdates = pendingUpdatesRef.current;
+      if (Object.keys(remainingUpdates).length > 0 && product?.barcode) {
+        // Fire and forget save on unmount
+        functions()
+          .httpsCallable("updateProduct")({
+            barcode: product.barcode,
+            updates: remainingUpdates,
+          })
+          .catch((err) => console.error("Unmount save failed:", err));
+      }
+    };
+  }, [product?.barcode]);
+
+  // Background Queue Processor — 4-second debounce to batch edits
+  useEffect(() => {
+    if (
+      !product?.barcode ||
+      Object.keys(pendingUpdates).length === 0 ||
+      isUploadingImage
+    ) {
+      return;
+    }
+
+    setSyncStatus("Saving changes...");
+
+    const timer = setTimeout(async () => {
+      try {
+        await functions().httpsCallable("updateProduct")({
+          barcode: product.barcode,
+          updates: pendingUpdates,
+        });
+
+        setPendingUpdates({});
+        setSyncStatus("All changes saved");
+        setTimeout(() => setSyncStatus(""), 2000);
+      } catch (e: any) {
+        console.error("Background save failed:", e);
+        setSyncStatus("Save failed. Retrying in background...");
+      }
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [pendingUpdates, isUploadingImage, product?.barcode]);
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -173,54 +235,6 @@ export default function ResultScreen() {
     }
   };
 
-  // Reference to hold pending updates for unmount flushing
-  const pendingUpdatesRef = useRef(pendingUpdates);
-  useEffect(() => {
-    pendingUpdatesRef.current = pendingUpdates;
-  }, [pendingUpdates]);
-
-  // Flush pending updates when user navigates away (component unmounts)
-  useEffect(() => {
-    return () => {
-      const remainingUpdates = pendingUpdatesRef.current;
-      if (Object.keys(remainingUpdates).length > 0) {
-        // Fire and forget save on unmount
-        functions()
-          .httpsCallable("updateProduct")({
-            barcode: product.barcode,
-            updates: remainingUpdates,
-          })
-          .catch((err) => console.error("Unmount save failed:", err));
-      }
-    };
-  }, [product.barcode]);
-
-  // Background Queue Processor — 4-second debounce to batch edits
-  useEffect(() => {
-    if (Object.keys(pendingUpdates).length === 0 || isUploadingImage) {
-      return;
-    }
-
-    setSyncStatus("Saving changes...");
-
-    const timer = setTimeout(async () => {
-      try {
-        await functions().httpsCallable("updateProduct")({
-          barcode: product.barcode,
-          updates: pendingUpdates,
-        });
-
-        setPendingUpdates({});
-        setSyncStatus("All changes saved");
-        setTimeout(() => setSyncStatus(""), 2000);
-      } catch (e: any) {
-        console.error("Background save failed:", e);
-        setSyncStatus("Save failed. Retrying in background...");
-      }
-    }, 4000);
-
-    return () => clearTimeout(timer);
-  }, [pendingUpdates, isUploadingImage, product.barcode]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -370,6 +384,31 @@ export default function ResultScreen() {
                     {warning.ingredient}
                   </Text>
                   <Text style={styles.flagText}>{warning.reason}</Text>
+                  
+                  {warning.source && (
+                    <>
+                      <TouchableOpacity 
+                        onPress={() => toggleSource(idx)} 
+                        style={styles.sourceToggle}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.sourceToggleText}>
+                          {expandedSources[idx] ? "Hide source" : "Show source"}
+                        </Text>
+                        <Ionicons 
+                          name={expandedSources[idx] ? "chevron-up" : "chevron-down"} 
+                          size={12} 
+                          color={theme.colors.primary} 
+                        />
+                      </TouchableOpacity>
+
+                      {expandedSources[idx] && (
+                        <Text style={styles.flagSource}>
+                          📚 {warning.source}
+                        </Text>
+                      )}
+                    </>
+                  )}
                 </View>
               </View>
             ))
@@ -639,6 +678,31 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.sizes.bodyMd,
     color: theme.colors.onSurfaceVariant,
     marginTop: 2,
+  },
+  flagSource: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: 11,
+    color: theme.colors.onSurfaceVariant,
+    opacity: 0.8,
+    fontStyle: 'italic',
+    marginTop: 6,
+    lineHeight: 16,
+    backgroundColor: theme.colors.surfaceContainer,
+    padding: 8,
+    borderRadius: 8,
+  },
+  sourceToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  sourceToggleText: {
+    fontFamily: theme.typography.fontFamily.body,
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.primary,
+    marginRight: 4,
   },
   emptyText: {
     fontFamily: theme.typography.fontFamily.body,

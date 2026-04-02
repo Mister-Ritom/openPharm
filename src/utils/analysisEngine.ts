@@ -14,12 +14,15 @@ export interface NutritionData {
     carbohydrate_g?: number;
     sugar_g: number;
     sodium_mg: number;
+    fiber_g?: number;
+    cholesterol_mg?: number;
   };
   healthScore?: number;
   warnings: Array<{
     ingredient: string;
     reason: string;
     severity: string;
+    source?: string;
   }>;
   grade?: 'A' | 'B' | 'C' | 'D' | 'E';
   isEditable?: boolean;
@@ -41,7 +44,7 @@ const HARMFUL_LIST = harmfulData as unknown as HarmfulIngredient[];
 const THRESHOLDS = thresholdsData as any;
 
 export function analyzeProduct(data: Partial<NutritionData>, userProfile?: any): any {
-  const warnings: Array<{ ingredient: string, reason: string, severity: string }> = [];
+  const warnings: Array<{ ingredient: string, reason: string, severity: string, source?: string }> = [];
   let score = 100;
 
   const userConditions = userProfile?.healthProfiles || ['general'];
@@ -77,35 +80,113 @@ export function analyzeProduct(data: Partial<NutritionData>, userProfile?: any):
   // Nutritional penalties ("Dosage" checks)
   const sugar = data.nutrients?.sugar_g || 0;
   const sodium = data.nutrients?.sodium_mg || 0;
-  const satFat = data.nutrients?.fat_g || 0; // Simplified fat check as Sat Fat might missing
+  const totalFat = data.nutrients?.fat_g || 0;
+  const satFat = data.nutrients?.saturated_fat_g || 0;
+  const transFat = data.nutrients?.trans_fat_g || 0;
+  const carbs = data.nutrients?.carbohydrate_g || 0;
+  const calories = data.nutrients?.energy_kcal || 0;
+  const cholesterol = data.nutrients?.cholesterol_mg || 0;
   const protein = data.nutrients?.protein_g || 0;
 
   userConditions.forEach((condition: string) => {
     const limits = THRESHOLDS[condition] || THRESHOLDS.general;
-    if (sugar > limits.max_sugar_g) {
+    const formattedCondition = condition.replace(/_/g, ' ');
+    
+    // Fetch the medical source or fallback to general guideline organizations
+    const conditionSource = limits._source || 
+      THRESHOLDS._meta?.sources?.join('; ') || 
+      "FDA Dietary Guidelines, WHO Global Action Plan, and relevant medical associations.";
+
+    if (limits.max_sugar_g && sugar > limits.max_sugar_g) {
       warnings.push({ 
         ingredient: 'Sugar', 
-        reason: `Exceeds your ${condition} limit of ${limits.max_sugar_g}g. High sugar spikes insulin.`, 
-        severity: 'high' 
+        reason: `Exceeds your ${formattedCondition} limit of ${limits.max_sugar_g}g. High sugar spikes insulin.`, 
+        severity: 'high',
+        source: conditionSource
       });
       score -= 20;
     }
-    if (sodium > limits.max_sodium_mg) {
+    
+    if (limits.max_sodium_mg && sodium > limits.max_sodium_mg) {
       warnings.push({ 
         ingredient: 'Sodium', 
-        reason: `Exceeds your ${condition} limit of ${limits.max_sodium_mg}mg. Increases blood pressure.`, 
-        severity: 'medium' 
+        reason: `Exceeds your ${formattedCondition} limit of ${limits.max_sodium_mg}mg. Increases blood pressure.`, 
+        severity: 'medium',
+        source: conditionSource
       });
       score -= 10;
     }
-    if (satFat > (limits.max_sat_fat_g || 10)) {
+
+    if (limits.max_total_fat_g && totalFat > limits.max_total_fat_g) {
       warnings.push({ 
-        ingredient: 'Fat', 
-        reason: `Exceeds your ${condition} recommended fat limit.`, 
-        severity: 'low' 
+        ingredient: 'Total Fat', 
+        reason: `Exceeds your ${formattedCondition} recommended limit of ${limits.max_total_fat_g}g.`, 
+        severity: 'low',
+        source: conditionSource
       });
       score -= 5;
     }
+
+    if (limits.max_sat_fat_g) {
+      if (satFat > limits.max_sat_fat_g) {
+        warnings.push({ 
+          ingredient: 'Saturated Fat', 
+          reason: `Exceeds your ${formattedCondition} limit of ${limits.max_sat_fat_g}g.`, 
+          severity: 'medium',
+          source: conditionSource
+        });
+        score -= 10;
+      } else if (satFat === 0 && totalFat > (limits.max_sat_fat_g * 1.5)) {
+        warnings.push({ 
+          ingredient: 'Fat', 
+          reason: `High total fat may contain excessive saturated fat for your ${formattedCondition} limit.`, 
+          severity: 'low',
+          source: conditionSource
+        });
+        score -= 5;
+      }
+    }
+
+    if (limits.max_trans_fat_g && transFat > limits.max_trans_fat_g) {
+      warnings.push({ 
+        ingredient: 'Trans Fat', 
+        reason: `Exceeds your ${formattedCondition} limit of ${limits.max_trans_fat_g}g. Trans fats are highly artificial.`, 
+        severity: 'high',
+        source: conditionSource
+      });
+      score -= 15;
+    }
+
+    if (limits.max_carbs_g && carbs > limits.max_carbs_g) {
+      warnings.push({ 
+        ingredient: 'Carbohydrates', 
+        reason: `Exceeds your ${formattedCondition} limit of ${limits.max_carbs_g}g.`, 
+        severity: 'medium',
+        source: conditionSource
+      });
+      score -= 10;
+    }
+
+    if (limits.max_calories_kcal && calories > limits.max_calories_kcal) {
+      warnings.push({ 
+        ingredient: 'Calories', 
+        reason: `Exceeds your ${formattedCondition} limit of ${limits.max_calories_kcal} kcal per serving.`, 
+        severity: 'medium',
+        source: conditionSource
+      });
+      score -= 10;
+    }
+
+    if (limits.max_cholesterol_mg && cholesterol > limits.max_cholesterol_mg) {
+      warnings.push({ 
+        ingredient: 'Cholesterol', 
+        reason: `Exceeds your ${formattedCondition} limit of ${limits.max_cholesterol_mg}mg.`, 
+        severity: 'medium',
+        source: conditionSource
+      });
+      score -= 10;
+    }
+
     if (protein < (limits.min_protein_g || 0) && protein > 0) {
        // Not a warning, just context or slight deduction if it's meant to be high protein
     }
