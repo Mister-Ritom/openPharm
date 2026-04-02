@@ -6,12 +6,13 @@
 
 ## Overview
 
-The **OpenPharma Website** is a lightweight landing page and legal document host built with **SvelteKit**. It serves as the primary web presence for the app and provides the required links for app store submissions (Privacy Policy and Terms of Service).
+The **OpenPharma Website** is a lightweight landing page and legal document host built with **SvelteKit**. It serves as the primary web presence for the app and provides the required links for app store submissions (Privacy Policy, Terms of Service, and Account Deletion).
 
 - **Domain**: `pharma.ritom.in`
-- **Framework**: SvelteKit 2 + Svelte 5
+- **Framework**: SvelteKit 2 + Svelte 5 (Runes mode)
 - **Build Tool**: Vite 7
 - **Project Directory**: `/website`
+- **Hosting**: Firebase Hosting (Static)
 
 ---
 
@@ -21,18 +22,20 @@ The **OpenPharma Website** is a lightweight landing page and legal document host
 website/
 ├── src/
 │   ├── routes/
-│   │   ├── +layout.svelte      # Common layout (Navbar, Footer, PostHog init)
+│   │   ├── +layout.svelte      # Common layout (Navbar, Footer)
 │   │   ├── +page.svelte        # Main landing page
 │   │   ├── privacy/
 │   │   │   └── +page.svelte    # Privacy Policy page
-│   │   └── tos/
-│   │       └── +page.svelte    # Terms of Service page
+│   │   ├── tos/
+│   │   │   └── +page.svelte    # Terms of Service page
+│   │   └── delete-account/
+│   │       └── +page.svelte    # Account Deletion Request page
 │   ├── lib/                    # Reusable Svelte components and utilities
-│   ├── app.css                 # Global styles (Vanilla CSS / Tailwind if requested)
+│   ├── app.css                 # Global styles (Vanilla CSS)
 │   ├── app.html                # Main HTML entry point
 │   └── app.d.ts                # TypeScript declarations
 ├── static/                     # Static assets (images, icons, etc.)
-├── svelte.config.js            # SvelteKit configuration
+├── svelte.config.js            # SvelteKit configuration (adapter-static)
 ├── vite.config.ts              # Vite configuration
 └── package.json                # Dependencies and scripts
 ```
@@ -41,15 +44,25 @@ website/
 
 ## Key Features
 
-1. **Landing Page**: A high-conversion landing page detailing the app's features (Barcode scanning, AI analysis, Health profiles).
+1. **Landing Page**: A high-conversion landing page detailing the app's features (Barcode scanning, AI analysis, Clinical Personalization).
 2. **Legal Pages**: Mandatory `/privacy` and `/tos` pages for App Store and Play Store compliance.
-3. **Analytics**: Integrated with PostHog (shared with the mobile app) via the associated domain proxy.
+3. **Data Control**: A dedicated `/delete-account` route for users to request data removal, fulfilling platform requirements.
+4. **Analytics**: Integrated with PostHog (shared with the mobile app) for unified user tracking.
 
 ---
 
 ## Deployment
 
-The website is typically deployed via **Vercel** or **Cloudflare Pages** (using `@sveltejs/adapter-auto`).
+The website is deployed to **Firebase Hosting** as a Static Site.
+
+### Build Process
+The project uses `@sveltejs/adapter-static` to generate a production build in the `website/build` directory.
+
+### Hosting Configuration
+Firebase is configured in the root `firebase.json` to serve the `website/build` directory:
+- **Clean URLs**: Enabled.
+- **SPA Fallback**: All requests are rewritten to `/index.html` (or `404.html` fallback) to handle SvelteKit client-side routing.
+- **AASA/AssetLinks**: Specific headers are set for Apple and Android app association files in `.well-known/`.
 
 ### Available Scripts
 
@@ -62,6 +75,7 @@ The website is typically deployed via **Vercel** or **Cloudflare Pages** (using 
 
 ## Interaction with Mobile App
 
-- The website provides the link for the app's **associated domains** (iOS Universal Links / Android App Links).
-- It hosts the `apple-app-site-association` and `.well-known/assetlinks.json` files if deep linking is configured via the web server (typically these are placed in the `static/.well-known/` directory).
-- The mobile app links to the website's `/privacy` and `/tos` pages within the `(legal)` route group.
+- **Deep Linking**: Hosts `apple-app-site-association` and `.well-known/assetlinks.json` in the `static/` directory for Universal Links and App Links.
+- **Legal Compliance**: The mobile app links directly to `/privacy`, `/tos`, and `/delete-account` within its legal and profile settings.
+- **Shared Analytics**: Uses the same PostHog instance as the mobile app to maintain a single view of the user journey.
+
