@@ -49,9 +49,12 @@ openPharm/
 │   │   ├── Card.tsx
 │   │   ├── EditableField.tsx
 │   │   ├── RatingBadge.tsx
-│   │   └── SkeletonLoader.tsx
+│   │   ├── SkeletonLoader.tsx
+│   │   ├── ScanLimitSheet.tsx  # Animated scan limit gate
+│   │   └── AppNativeAd.tsx     # Themed Google Native Ad component
 │   ├── constants/
-│   │   └── Config.ts       # App-level config (FREE_SCAN_LIMIT = 3)
+│   │   ├── Config.ts       # App-level config (FREE_SCAN_LIMIT = 3)
+│   │   └── Ads.ts          # AdMob Unit IDs (Test IDs in dev)
 │   └── theme/
 │       └── designSystem.ts # Single source of truth for all colors, fonts, spacing
 │
@@ -136,7 +139,7 @@ User logged in, profile complete:
 | Auth user + Firestore profile | `useAuth()` hook    | Firebase `onAuthStateChanged` + Firestore `onSnapshot` on `/users/{uid}` |
 | Onboarding completion status  | `OnboardingContext` | AsyncStorage key `onboarding_complete` (value `'true'`)                    |
 | Health profile (primary)      | AsyncStorage          | Key `health_profile` (string: `'general'`, `'diabetic'`, etc.)           |
-| Subscription / Pro status     | `useSubscription()` | RevenueCat `react-native-purchases` SDK                                      |
+| Subscription / Pro status     | `useSubscription()` | RevenueCat `react-native-purchases` SDK (exposes `isPro` and `lowestPrice`) |
 | Daily scan count              | `useScanCount()`    | Firestore real-time query on `users/{uid}/scans` filtered by today           |
 
 **No Zustand store is actively used** — the `src/store/` directory exists but is empty.
@@ -169,9 +172,9 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 
 | File            | Tab             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | --------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.tsx`   | Home            | Greeting, upgrade banner (free users), Scan CTA, history shortcut. Shows `remainingScans` from `useScanCount`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `scan.tsx`    | Scan            | Camera view.**Mode: `'barcode'`** → auto-scan EAN13/UPC → calls `onScanProduct` Cloud Function. Checks `isIncomplete` flag on result — if true, shows alert prompting nutrition label scan. **Mode: `'nutritionLabel'`** → capture photo → OCR → calls `onOCRSubmit` (new product) or `onOCRUpdate` (correction). Checks daily scan limit before NEW scans; corrections skip the limit check. Accepts `isUpdateMode: 'true'` and `imageType` params.                                                                                                                                                                                                                                                                    |
-| `history.tsx` | History         | Real-time FlatList of `users/{uid}/scans` ordered by `timestamp desc`. Shows product name, brand, rating badge, date.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `index.tsx`   | Home            | Greeting, Scan CTA, history shortcut. Shows `remainingScans` (free). Blocks scan if limit reached with `ScanLimitSheet`. Pre-loads rewarded ads. |
+| `scan.tsx`    | Scan            | Camera view. **Mode: `'barcode'`** → calls `onScanProduct`. **Mode: `'nutritionLabel'`** → OCR. Shows `AppNativeAd` below spinner during processing state (hidden for Pro). |
+| `history.tsx` | History         | Real-time FlatList with randomized `AppNativeAd` injection (5-8 item gap). Pro users see no ads. |
 | `profile.tsx` | Profile         | Shows email, subscription status, links to legal pages, Upgrade CTA, Logout.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `result.tsx`  | Hidden (no tab) | Receives product data via router params (`data` as JSON string). Shows grade badge, warnings, editable nutrient fields. **If `product.isIncomplete === true`**: shows a red warning banner at top prompting label scan (navigates to `scan.tsx` with `isUpdateMode: 'true'`). **"Something look wrong?"** banner now passes `isUpdateMode: 'true'` so the re-scan calls `onOCRUpdate` (updates existing product) instead of creating a new one. Implements **optimistic UI + background debounced save** (4s debounce) via `updateProduct` Cloud Function. **Product image** (`productImageUrl`) is only set when user explicitly picks from gallery — never from OCR flows. Flushes pending updates on unmount. |
 
@@ -240,10 +243,31 @@ Rating colors: A=#2ECC71, B=#A8E063, C=#F1C40F, D=#E67E22, E=#E74C3C
 
 ### Scan Limit (Free vs Pro)
 
-- **Free users**: `CONFIG.FREE_SCAN_LIMIT = 3` scans/day (in `src/constants/Config.ts`)
-- Limit checked in `scan.tsx` via `useScanCount()` before any scan starts
-- `useScanCount()` watches `/users/{uid}/scans` where `timestamp >= startOfDay(today)` in real-time
-- Pro status from `useSubscription().isPro` — checked via RevenueCat entitlement `'OpenPharma Pro'`
+- **Free users**: `CONFIG.FREE_SCAN_LIMIT = 3` scans/day.
+- Limit checked in `scan.tsx` and `index.tsx`.
+- Pro status from `useSubscription().isPro` — checked via RevenueCat entitlement `'OpenPharma Pro'`.
+
+---
+
+## Monetization & Ads (AdMob)
+
+The app uses **Google AdMob** for non-intrusive, UX-first monetization.
+
+### Ad Strategy
+1. **No Banners**: Persistent banners are banned to maintain a premium feel.
+2. **Scan Gate**: When free users hit the daily limit, `ScanLimitSheet` appears, offering to "Watch an Ad" (Rewarded) to get +1 scan or "Go Pro".
+3. **Randomized Injection**: Native ads are injected into the History feed with a randomized gap (5–8 items).
+4. **Processing Placeholder**: A native ad is shown during the "Analyzing..." state in `scan.tsx`.
+5. **Pro Removal**: All ad components are gated by `isPro`. If `true`, nothing is fetched or rendered.
+
+### Implementation Details
+- **Provider**: `react-native-google-mobile-ads`.
+- **IDs**: Managed in `src/constants/Ads.ts`. Returns **Google Test IDs** in `__DEV__` to keep the account safe.
+- **iOS ATT**: Prompts for tracking permission in `_layout.tsx` using `expo-tracking-transparency`. If denied, generic ads are served.
+- **Targeting**: Global keywords set in `_layout.tsx`: `lifestyle`, `medical`, `patients`, `food`, `wellness`.
+- **Components**:
+  - `ScanLimitSheet`: Bottom sheet logic + Rewarded Ad handling.
+  - `AppNativeAd`: Self-contained Native Ad card with skeleton loading.
 
 ---
 
@@ -297,6 +321,8 @@ On any signup, a Firestore document is created at `/users/{uid}` with minimal da
 | `@react-native-async-storage/async-storage` | `2.2.0`    | Local onboarding state                                          |
 | `date-fns`                                  | `^4.1.0`   | Date formatting                                                 |
 | `react-native-markdown-display`             | `^7.0.2`   | Render markdown in legal pages                                  |
+| `react-native-google-mobile-ads`           | `^15.7.0` | AdMob SDK + Native Ads                                          |
+| `expo-tracking-transparency`               | `^1.4.0`  | iOS App Tracking Transparency (ATT)                             |
 | `zustand`                                   | `^5.0.12`  | State library (imported but store dir is empty — not yet used) |
 
 ---
@@ -354,3 +380,7 @@ Common events tracked:
 10. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.
 11. **Correction Banner Visibility**: The "Something look wrong?" banner in `result.tsx` appears if `product.isEditable === true` OR if `product.isIncomplete === true`. This allows users to "fix" incomplete data even for products sourced from OpenFoodFacts that are otherwise locked.
 12. **Stale Cache Prevention**: All barcode lookups in `scan.tsx` use `getDocFromServer()` to ensure that updates made via Cloud Functions are immediately visible to the client upon the next scan.
+13. **Ads — Test Mode**: `src/constants/Ads.ts` MUST always use Google Test IDs for `__DEV__`. Never hardcode production IDs in components.
+14. **Ads — Pro Check**: Every ad placement MUST be guarded by `useSubscription().isPro` to ensure paid users have a 100% ad-free experience.
+15. **Ads — Non-Intrusive**: Prefer native ads injected into lists or loading states over full-screen interstitials to maintain user trust.
+16. **iOS ATT Compliance**: AdMob SDK initialization in `_layout.tsx` must happen *after* checking/requesting tracking permissions on iOS.

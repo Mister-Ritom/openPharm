@@ -494,6 +494,10 @@ export default function ResultScreen() {
         </Card>
 
         {/* ── Fix Data Banner ── */}
+        {/* TODO(ads): Add a native ad here in a future iteration.
+            Placement: between the Nutrition Details card and Fix Data Banner.
+            Guard with `!isPro` and use `<AppNativeAd isPro={isPro} />`.
+            UX note: keep result screen clean for now to preserve user trust. */}
         {(isEditable || isIncomplete) && (
           <TouchableOpacity
             style={styles.fixBanner}

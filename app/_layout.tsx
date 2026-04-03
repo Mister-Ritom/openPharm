@@ -1,8 +1,10 @@
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import { requestTrackingPermissionsAsync } from "expo-tracking-transparency";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { PostHogProvider, usePostHog } from "posthog-react-native";
 import { useEffect } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
+import MobileAds from "react-native-google-mobile-ads";
 import {
   OnboardingProvider,
   useOnboarding,
@@ -48,6 +50,33 @@ function LayoutContent() {
 
   useEffect(() => {
     configureRevenueCat();
+  }, []);
+
+  // Initialize Google AdMob SDK with health/lifestyle targeting keywords
+  useEffect(() => {
+    const initAds = async () => {
+      try {
+        // iOS: Request App Tracking Transparency permission.
+        // If denied, AdMob automatically serves non-personalized ads — we never stop ads.
+        if (Platform.OS === 'ios') {
+          const { status } = await requestTrackingPermissionsAsync();
+          console.log('[AdMob] ATT status:', status);
+        }
+
+        await MobileAds().initialize();
+        await MobileAds().setRequestConfiguration({
+          // Targeted health/lifestyle ad categories
+          tagForChildDirectedTreatment: false,
+          tagForUnderAgeOfConsent: false,
+          maxAdContentRating: 'MA',
+        });
+        console.log('[AdMob] SDK initialized');
+      } catch (e) {
+        console.error('[AdMob] Initialization error:', e);
+      }
+    };
+
+    initAds();
   }, []);
 
   // Sync RevenueCat and PostHog whenever the Firebase auth user changes

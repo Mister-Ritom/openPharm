@@ -7,9 +7,11 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../src/components/ui/Button';
+import { AppNativeAd } from '../../src/components/ui/AppNativeAd';
 import { CONFIG } from '../../src/constants/Config';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useScanCount } from '../../src/hooks/useScanCount';
@@ -96,17 +98,31 @@ async function logScanLocally(uid: string | undefined, product: any, grade: stri
 }
 
 export default function ScanScreen() {
+  const isFocused = useIsFocused();
+  const [appState, setAppState] = useState(AppState.currentState);
   const [permission, requestPermission] = useCameraPermissions();
-  const { initialMode, initialBarcode, isUpdateMode, imageType: imageTypeParam } = useLocalSearchParams<{
+
+  // Listen for AppState changes to re-mount camera when returning from background
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      setAppState(nextAppState);
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const isCameraActive = isFocused && appState === 'active';
+  const { initialMode, initialBarcode, isUpdateMode, imageType: imageTypeParam, rewarded } = useLocalSearchParams<{
     initialMode?: string;
     initialBarcode?: string;
     isUpdateMode?: string;
     imageType?: ImageType;
+    rewarded?: string;
   }>();
 
   const [mode, setMode] = useState<'barcode' | 'nutritionLabel' | 'processing'>(initialMode === 'nutritionLabel' ? 'nutritionLabel' : 'barcode');
   const [processingStep, setProcessingStep] = useState('');
   const [currentBarcode, setCurrentBarcode] = useState<string | null>(initialBarcode || null);
+  const [hasRewardedAccess, setHasRewardedAccess] = useState(rewarded === 'true');
 
   // Sync mode and reset processing state when params change
   useEffect(() => {
@@ -150,6 +166,7 @@ export default function ScanScreen() {
   }
 
   const checkLimit = () => {
+    if (hasRewardedAccess) return true;
     if (!isPro && count >= CONFIG.FREE_SCAN_LIMIT) {
       // Guard: only show the alert once until the user dismisses it and tries again.
       if (limitAlertShown.current) return false;
@@ -182,6 +199,7 @@ export default function ScanScreen() {
     if (mode !== 'barcode') return;
     if (!checkLimit()) return;
 
+    setHasRewardedAccess(false); // Consume the reward access
     setMode('processing');
     setCurrentBarcode(data);
     analytics.trackBarcodeDetected({ barcode: data, format: type });
@@ -265,6 +283,8 @@ export default function ScanScreen() {
 
     // Scan-limit check only for NEW scans, not for corrections
     if (!isUpdate && !checkLimit()) return;
+
+    if (!isUpdate) setHasRewardedAccess(false); // Consume reward access
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ base64: false });
@@ -425,18 +445,25 @@ export default function ScanScreen() {
           <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginBottom: 24 }} />
           <Text style={styles.title}>{processingTitle}</Text>
           <Text style={styles.text}>{processingStep || processingSubtext}</Text>
+
+          {/* Native ad shown during AI analysis wait — hidden for Pro users */}
+          <View style={styles.processingAdContainer}>
+            <AppNativeAd isPro={isPro} />
+          </View>
         </View>
       ) : (
         <View style={styles.camContainer}>
-          <CameraView 
-            style={styles.camera} 
-            facing="back"
-            ref={cameraRef}
-            barcodeScannerSettings={{
-              barcodeTypes: ['ean13', 'upc_a', 'upc_e', 'ean8'],
-            }}
-            onBarcodeScanned={mode === 'barcode' ? handleBarcodeScanned : undefined}
-          />
+          {isCameraActive && (
+            <CameraView 
+              style={styles.camera} 
+              facing="back"
+              ref={cameraRef}
+              barcodeScannerSettings={{
+                barcodeTypes: ['ean13', 'upc_a', 'upc_e', 'ean8'],
+              }}
+              onBarcodeScanned={mode === 'barcode' ? handleBarcodeScanned : undefined}
+            />
+          )}
 
           <View style={styles.overlay}>
             {/* Shroud System (Hole Punch) */}
@@ -595,5 +622,10 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     backgroundColor: '#fff',
-  }
+  },
+  processingAdContainer: {
+    marginTop: 32,
+    width: '92%',
+    alignSelf: 'center',
+  },
 });

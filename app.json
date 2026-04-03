@@ -15,7 +15,8 @@
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSCameraUsageDescription": "OpenPharma needs access to your camera to scan barcodes and nutrition labels on food products.",
-        "NSPhotoLibraryUsageDescription": "OpenPharma needs access to your photos so you can upload product images for analysis."
+        "NSPhotoLibraryUsageDescription": "OpenPharma needs access to your photos so you can upload product images for analysis.",
+        "NSUserTrackingUsageDescription": "This allows us to show you relevant health and lifestyle advertisements based on your needs. You can always opt out later."
       },
       "associatedDomains": [
         "applinks:pharma.ritom.in"
@@ -34,7 +35,8 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.VIBRATE",
         "android.permission.SYSTEM_ALERT_WINDOW",
-        "com.android.vending.BILLING"
+        "com.android.vending.BILLING",
+        "com.google.android.gms.permission.AD_ID"
       ],
       "intentFilters": [
         {
@@ -113,7 +115,16 @@
           "iosUrlScheme": "com.googleusercontent.apps.7881873473-b7i29gku63is5op9d5mtqgo2p3fuoc7b"
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-2032620092700178~5398079799",
+          "iosAppId": "ca-app-pub-2032620092700178~6107488826",
+          "userTrackingUsageDescription": "This allows us to show you relevant health and lifestyle advertisements based on your needs."
+        }
+      ],
+      "expo-tracking-transparency"
     ],
     "experiments": {
       "typedRoutes": true,

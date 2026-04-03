@@ -2,7 +2,7 @@ import auth from "@react-native-firebase/auth";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Button } from "../../src/components/ui/Button";
 import { Card } from "../../src/components/ui/Card";
 import { useSubscription } from "../../src/hooks/useSubscription";
@@ -11,7 +11,7 @@ import { theme } from "../../src/theme/designSystem";
 export default function ProfileScreen() {
   const router = useRouter();
   const user = auth().currentUser;
-  const { isPro, loading } = useSubscription();
+  const { isPro, isDevPro, revokeMockPro, loading } = useSubscription();
 
   const handleLogout = () => {
     Alert.alert(
@@ -62,6 +62,26 @@ export default function ProfileScreen() {
               <Text style={styles.proNote}>
                 Thank you for supporting OpenPharma!
               </Text>
+              <View style={{ marginTop: theme.spacing[4], gap: theme.spacing[2] }}>
+                <Button
+                  title="Manage Subscription"
+                  variant="secondary"
+                  onPress={() => {
+                    const url = Platform.OS === 'ios' 
+                      ? 'https://apps.apple.com/account/subscriptions'
+                      : 'https://play.google.com/store/account/subscriptions';
+                    Linking.openURL(url);
+                  }}
+                />
+                {__DEV__ && isDevPro && (
+                  <Button
+                    title="Revoke Mock Pro (Dev)"
+                    variant="tertiary"
+                    onPress={revokeMockPro}
+                    textStyle={{ color: theme.colors.error, fontSize: 13 }}
+                  />
+                )}
+              </View>
             </>
           ) : (
             <>

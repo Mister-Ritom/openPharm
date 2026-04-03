@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, Image, ScrollView,
   TouchableOpacity, ActivityIndicator, Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { PurchasesPackage } from 'react-native-purchases';
 import { theme } from '../../src/theme/designSystem';
 import { Button } from '../../src/components/ui/Button';
@@ -19,11 +19,22 @@ const PLAN_META: Record<string, { label: string; badge?: string; highlight: bool
 export default function PaywallScreen() {
   const router   = useRouter();
   const analytics = useAnalytics();
-  const { offerings, purchasePackage, restorePurchases, isPro, loading, grantMockPro } = useSubscription();
+  const { offerings, purchasePackage, restorePurchases, isPro, isDevPro, revokeMockPro, loading, grantMockPro } = useSubscription();
   const [purchasing, setPurchasing] = useState<string | null>(null);
-
+  const { autoPurchase } = useLocalSearchParams();
 
   const packages: PurchasesPackage[] = offerings?.availablePackages ?? [];
+
+  // Auto-trigger purchase if coming from limit sheet
+  useEffect(() => {
+    if (autoPurchase === 'true' && packages.length > 0 && !purchasing && !loading && !isPro) {
+      const sorted = [...packages].sort((a, b) => {
+        const order = ['$rc_monthly', '$rc_six_month', '$rc_annual'];
+        return order.indexOf(a.identifier) - order.indexOf(b.identifier);
+      });
+      handlePurchase(sorted[0]);
+    }
+  }, [autoPurchase, packages, loading, isPro]);
 
   const handlePurchase = async (pkg: PurchasesPackage) => {
     setPurchasing(pkg.identifier);
@@ -39,7 +50,17 @@ export default function PaywallScreen() {
       <View style={styles.proCentered}>
         <Text style={styles.proEmoji}>✅</Text>
         <Text style={styles.proTitle}>You're already Pro!</Text>
-        <Button title="Close" variant="secondary" onPress={() => router.back()} style={{ marginTop: theme.spacing[6] }} />
+        <View style={{ marginTop: theme.spacing[6], gap: theme.spacing[3], width: '100%' }}>
+          <Button title="Close" variant="secondary" onPress={() => router.back()} />
+          {__DEV__ && isDevPro && (
+            <Button
+              title="Revoke Mock Pro (Dev Only)"
+              variant="tertiary"
+              onPress={revokeMockPro}
+              textStyle={{ color: theme.colors.outline, fontSize: 13 }}
+            />
+          )}
+        </View>
       </View>
     );
   }

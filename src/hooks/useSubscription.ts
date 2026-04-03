@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { Alert, Platform } from 'react-native';
 import Purchases, {
   CustomerInfo,
@@ -43,9 +44,12 @@ interface SubscriptionState {
   isPro: boolean;
   loading: boolean;
   offerings: PurchasesOffering | null;
+  lowestPrice: string | null;
   purchasePackage: (pkg: PurchasesPackage) => Promise<boolean>;
   restorePurchases: () => Promise<void>;
   grantMockPro: () => Promise<void>;
+  revokeMockPro: () => Promise<void>;
+  isDevPro: boolean;
 }
 
 export function useSubscription(): SubscriptionState {
@@ -162,8 +166,42 @@ export function useSubscription(): SubscriptionState {
     }
   };
 
-  const isPro = isRcPro || devOverride;
+  const revokeMockPro = async () => {
+    if (__DEV__) {
+      await AsyncStorage.removeItem('debug_pro_override');
+      setDevOverride(false);
+      Alert.alert('Restored (Dev)', 'Mock Pro has been removed. You are now back to the Free plan.');
+    }
+  };
 
-  return { isPro, loading, offerings, purchasePackage, restorePurchases, grantMockPro };
+  const isPro = isRcPro || devOverride;
+  const isDevPro = devOverride;
+
+  // Find the lowest price package in the current offering
+  const lowestPrice: string | null = useMemo(() => {
+    if (!offerings?.availablePackages?.length) return null;
+    try {
+      const sorted = [...offerings.availablePackages].sort(
+        (a, b) =>
+          (a.product.price ?? Infinity) - (b.product.price ?? Infinity)
+      );
+      return sorted[0]?.product.priceString ?? null;
+    } catch (e) {
+      console.error('[RevenueCat] lowestPrice calc error:', e);
+      return null;
+    }
+  }, [offerings]);
+
+  return { 
+    isPro, 
+    isDevPro,
+    loading, 
+    offerings, 
+    lowestPrice, 
+    purchasePackage, 
+    restorePurchases, 
+    grantMockPro,
+    revokeMockPro
+  };
 }
 
