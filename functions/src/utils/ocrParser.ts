@@ -30,7 +30,6 @@ export async function parseNutritionOCR(ocrText: string, labelImageUrl: string, 
       }
       const buffer = await resp.arrayBuffer();
       base64Image = Buffer.from(buffer).toString('base64');
-      console.log(`Image fetched successfully. Base64 length: ${base64Image.length}`);
     } catch (e) {
       console.error("Failed to fetch image for Gemini:", e);
     }
@@ -66,13 +65,28 @@ export async function parseNutritionOCR(ocrText: string, labelImageUrl: string, 
           sodium_mg: { type: SchemaType.NUMBER }
         },
         required: ["energy_kcal", "protein_g", "fat_g", "saturated_fat_g", "trans_fat_g", "carbohydrate_g", "sugar_g", "sodium_mg"],
-        description: "Nutritional data per 100g, can be 0. If not visible, return -999."
+        description: "Nutritional data per 100g. If a value is missing or unreadable, return -999."
+      },
+      status: {
+        type: SchemaType.STRING,
+        enum: ["success", "partial", "failed"],
+        description: "Set to 'success' if name and main nutrients are found. 'partial' if some data is missing. 'failed' if no readable nutrition label is present."
       }
     },
-    required: ["name", "brand", "nutrients"]
+    required: ["name", "brand", "nutrients", "status"]
   };
 
-  const prompt = `Extract the nutritional data and ingredients from this label according to the provided JSON schema. If the image does not contain clear nutrition data, you MUST return a valid JSON object with the product 'name' as "failed" and empty/zero for other fields.`;
+  const prompt = `You are a professional dietitian assistant. Extract the nutritional data and ingredients from the provided image/text.
+  
+  GUIDELINES:
+  - PRIORITIZE finding values "per 100g" or "per 100ml". This is the gold standard.
+  - If "per 100g" data is NOT available, only then look for values "per serving".
+  - If using "per serving" values, you MUST convert them to "per 100g/100ml" based on the serving size.
+  - If the product name or brand is not explicitly visible, look for indicators or set to "Unknown".
+  - If a nutrient is missing, use -999.
+  - If the image is NOT a nutrition label, set status to 'failed' and name to 'No label detected'.
+  - If you find some data but the image is poor quality, set status to 'partial'.
+  - RETURN VALID JSON ONLY.`;
 
   const parts: any[] = [{ text: prompt }];
   if (!useAiOnly && ocrText) {
@@ -93,7 +107,8 @@ export async function parseNutritionOCR(ocrText: string, labelImageUrl: string, 
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: responseSchema,
-      }
+        mediaResolution: "MEDIA_RESOLUTION_LOW",
+      } as any
     });
     
     // Log the raw text returned by Gemini before parsing
@@ -103,13 +118,21 @@ export async function parseNutritionOCR(ocrText: string, labelImageUrl: string, 
     // Parse the natively structured JSON response
     const parsed = JSON.parse(text);
     
-    if (parsed.name && parsed.name.toLowerCase() === 'failed') {
+    if (parsed.status === 'failed' || (parsed.name && parsed.name.toLowerCase() === 'failed')) {
       return 'failed';
     }
 
-    // Ensure ingredients is an array if returned as null
-    if (parsed.ingredients === null) {
+    // Ensure ingredients is an array
+    if (!Array.isArray(parsed.ingredients)) {
       parsed.ingredients = [];
+    }
+
+    // Set isIncomplete flag if any of the mandatory nutrients are missing (-999)
+    if (parsed.nutrients) {
+      const nutrientValues = Object.values(parsed.nutrients);
+      if (nutrientValues.some(v => v === -999) || parsed.status === 'partial') {
+        parsed.isIncomplete = true;
+      }
     }
     
     return parsed;

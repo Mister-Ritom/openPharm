@@ -39,11 +39,11 @@ async function parseNutritionOCR(ocrText, labelImageUrl, geminiKey, useAiOnly) {
         properties: {
             name: {
                 type: generative_ai_1.SchemaType.STRING,
-                description: "The product name. If not visible, return 'not found'."
+                description: "The product name. If not visible, return 'Not found'."
             },
             brand: {
                 type: generative_ai_1.SchemaType.STRING,
-                description: "The brand name. If not visible, return 'not found'."
+                description: "The brand name. If not visible, return 'Not found'."
             },
             ingredients: {
                 type: generative_ai_1.SchemaType.ARRAY,

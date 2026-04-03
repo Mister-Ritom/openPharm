@@ -4,7 +4,7 @@ import functions from '@react-native-firebase/functions';
 import storage from '@react-native-firebase/storage';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as ExpoImageManipulator from 'expo-image-manipulator';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -279,12 +279,49 @@ export default function ScanScreen() {
             // 1. Upload image to Storage under a typed reference path
             setProcessingStep('Preparing image...');
             
-            // 1. On-device downscaling and compression
-            // We use the new, object-oriented API for image manipulation.
-            const manipResult = await ExpoImageManipulator.ImageManipulator.manipulate(photo.uri)
-              .resize({ width: 720,height:1280 })
-              .renderAsync()
-              .then((ref: any) => ref.saveAsync({ compress: 0.8, format: ExpoImageManipulator.SaveFormat.JPEG }));
+            // 1. Precision Cropping based on UI frame
+            const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+            const frameWidth = screenWidth * 0.7;
+            const currentFrameHeight = frameWidth; // In nutritionLabel mode, it's always a square
+
+            // Calculate ratios between photo and screen
+            const scaleX = photo.width / screenWidth;
+            const scaleY = photo.height / screenHeight;
+
+            // Calculate base crop boundaries in photo pixels (relative to center)
+            const baseOriginX = ((screenWidth - frameWidth) / 2) * scaleX;
+            const baseOriginY = ((screenHeight - currentFrameHeight) / 2) * scaleY;
+            const baseCropWidth = frameWidth * scaleX;
+            const baseCropHeight = currentFrameHeight * scaleY;
+
+            // Add 5% padding for better AI context (avoids cutting off labels)
+            const paddingX = baseCropWidth * 0.05;
+            const paddingY = baseCropHeight * 0.05;
+
+            const originX = Math.max(0, baseOriginX - paddingX);
+            const originY = Math.max(0, baseOriginY - paddingY);
+            const cropWidth = Math.min(photo.width - originX, baseCropWidth + (paddingX * 2));
+            const cropHeight = Math.min(photo.height - originY, baseCropHeight + (paddingY * 2));
+
+            console.log(`[OCR] Screen: ${screenWidth}x${screenHeight}, Photo: ${photo.width}x${photo.height}`);
+            console.log(`[OCR] Cropping photo with padding: ${cropWidth.toFixed(0)}x${cropHeight.toFixed(0)} at (${originX.toFixed(0)}, ${originY.toFixed(0)})`);
+            
+            // Use the stable manipulateAsync API to ensure we get a valid file URI
+            const manipResult = await ImageManipulator.manipulateAsync(
+              photo.uri,
+              [
+                {
+                  crop: {
+                    originX,
+                    originY,
+                    width: cropWidth,
+                    height: cropHeight,
+                  },
+                },
+                { resize: { width: 720, height: 720 } }
+              ],
+              { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+            );
 
             // 2. Upload the optimized image to Storage
             setProcessingStep('Securing image upload...');
@@ -294,9 +331,10 @@ export default function ScanScreen() {
             // 2. On-device OCR (only if not AI Only)
             if (!useAiOnly) {
               setProcessingStep('Extracting nutritional text...');
-              const result = await TextRecognition.recognize(photo.uri);
+              // USE THE CROPPED IMAGE (manipResult.uri) for better focus/OCR
+              const result = await TextRecognition.recognize(manipResult.uri);
               if (!result.text) {
-                throw new Error('No text detected in nutrition label.');
+                console.warn('MLKit: No text detected in cropped label.');
               }
               extractedText = result.text;
             }
@@ -305,37 +343,49 @@ export default function ScanScreen() {
             setProcessingStep('Analyzing data with Clinical AI...');
 
             let response;
-            if (isUpdate && currentBarcode) {
-              response = await functions().httpsCallable('onOCRUpdate')({
-                barcode: currentBarcode,
-                ocrText: extractedText,
-                labelImageUrl: labelUrl,
-                imageType: resolvedImageType,
-                useAiOnly,
-              });
-            } else {
-              response = await functions().httpsCallable('onOCRSubmit')({
-                barcode,
-                ocrText: extractedText,
-                labelImageUrl: labelUrl,
-                imageType: resolvedImageType,
-                useAiOnly,
-              });
+            try {
+              if (isUpdate && currentBarcode) {
+                response = await functions().httpsCallable('onOCRUpdate')({
+                  barcode: currentBarcode,
+                  ocrText: extractedText,
+                  labelImageUrl: labelUrl,
+                  imageType: resolvedImageType,
+                  useAiOnly,
+                });
+              } else {
+                response = await functions().httpsCallable('onOCRSubmit')({
+                  barcode,
+                  ocrText: extractedText,
+                  labelImageUrl: labelUrl,
+                  imageType: resolvedImageType,
+                  useAiOnly,
+                });
+              }
+              
+              if (__DEV__) {
+                console.log('--- AI Response Data ---');
+                console.log(response.data);
+                console.log('------------------------');
+              }
+              
+              const rawProduct = response.data as Partial<NutritionData>;
+              const analysis = analyzeProduct(rawProduct, profile);
+              await logScanLocally(user?.uid, rawProduct, analysis.grade, barcode);
+
+              // 4. Navigate only on success
+              router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(analysis) } });
+              setMode('barcode');
+            } catch (err: any) {
+              console.error('[OCR Error]', err);
+              setMode('barcode'); // Reset mode on error
+              // Handle the specific JSON parse error better
+              if (err.message?.includes('JSON') || err.message?.includes('character')) {
+                throw new Error('The AI response was malformed. This usually happens during server updates. Please try again in 10 seconds.');
+              }
+              throw err;
+            } finally {
+              setProcessingStep('');
             }
-            
-            if (__DEV__) {
-              console.log('--- AI Response Data ---');
-              console.log(response.data);
-              console.log('------------------------');
-            }
-            
-            const rawProduct = response.data as Partial<NutritionData>;
-            const analysis = analyzeProduct(rawProduct, profile);
-            await logScanLocally(user?.uid, rawProduct, analysis.grade, barcode);
-            
-            router.push({ pathname: '/(main)/result', params: { data: JSON.stringify(analysis) } });
-            setMode('barcode');
-            setProcessingStep('');
           } catch (e: any) {
             console.error('OCR Submit Error Detail:', e);
             Alert.alert('Error', e.message || 'Failed to process image');
@@ -386,8 +436,22 @@ export default function ScanScreen() {
               barcodeTypes: ['ean13', 'upc_a', 'upc_e', 'ean8'],
             }}
             onBarcodeScanned={mode === 'barcode' ? handleBarcodeScanned : undefined}
-          >
-            <View style={styles.overlay}>
+          />
+
+          <View style={styles.overlay}>
+            {/* Shroud System (Hole Punch) */}
+            <View style={styles.shroudContainer}>
+              <View style={[styles.shroud, styles.shroudTop]} />
+              <View style={styles.shroudMiddle}>
+                <View style={[styles.shroud, styles.shroudSide]} />
+                <View style={[styles.focusFrame, { height: mode === 'barcode' ? frameSize * 0.6 : frameSize }]} />
+                <View style={[styles.shroud, styles.shroudSide]} />
+              </View>
+              <View style={[styles.shroud, styles.shroudBottom]} />
+            </View>
+
+            {/* UI Content */}
+            <View style={styles.contentContainer}>
               <View style={styles.header}>
                 <Text style={styles.overlayTitle}>
                   {mode === 'barcode'
@@ -402,8 +466,6 @@ export default function ScanScreen() {
                   </Text>
                 )}
               </View>
-
-              <View style={[styles.focusFrame, { height: mode === 'barcode' ? frameSize * 0.6 : frameSize }]} />
 
               <View style={styles.footer}>
                 {mode === 'nutritionLabel' && (
@@ -423,7 +485,7 @@ export default function ScanScreen() {
                   />
               </View>
             </View>
-          </CameraView>
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -463,8 +525,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   overlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  shroudContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  shroud: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  shroudTop: {
+    flex: 1,
+  },
+  shroudMiddle: {
+    flexDirection: 'row',
+  },
+  shroudSide: {
+    flex: 1,
+  },
+  shroudBottom: {
+    flex: 1,
+  },
+  contentContainer: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 60,

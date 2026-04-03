@@ -94,7 +94,7 @@ export const onOCRSubmit = functionsV1.runWith({
       productImageUrl: null,
       dataSource: 'OCR+AI',
       isEditable: true,
-      isIncomplete: false,
+      isIncomplete: rawData.isIncomplete || false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
@@ -149,7 +149,7 @@ export const onOCRUpdate = functionsV1.runWith({
       referenceImages: updatedReferenceImages,
       dataSource: 'OCR+AI',
       isEditable: true,
-      isIncomplete: false,
+      isIncomplete: rawData.isIncomplete || false,
       lastEditedBy: uid,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
