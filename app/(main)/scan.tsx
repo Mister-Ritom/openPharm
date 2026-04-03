@@ -4,6 +4,7 @@ import functions from '@react-native-firebase/functions';
 import storage from '@react-native-firebase/storage';
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ExpoImageManipulator from 'expo-image-manipulator';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -276,8 +277,18 @@ export default function ScanScreen() {
           try {
             setMode('processing');
             // 1. Upload image to Storage under a typed reference path
+            setProcessingStep('Preparing image...');
+            
+            // 1. On-device downscaling and compression
+            // We use the new, object-oriented API for image manipulation.
+            const manipResult = await ExpoImageManipulator.ImageManipulator.manipulate(photo.uri)
+              .resize({ width: 720,height:1280 })
+              .renderAsync()
+              .then((ref: any) => ref.saveAsync({ compress: 0.8, format: ExpoImageManipulator.SaveFormat.JPEG }));
+
+            // 2. Upload the optimized image to Storage
             setProcessingStep('Securing image upload...');
-            const labelUrl = await uploadToStorage(photo.uri, barcode, resolvedImageType);
+            const labelUrl = await uploadToStorage(manipResult.uri, barcode, resolvedImageType);
 
             let extractedText = '';
             // 2. On-device OCR (only if not AI Only)
@@ -312,6 +323,12 @@ export default function ScanScreen() {
               });
             }
             
+            if (__DEV__) {
+              console.log('--- AI Response Data ---');
+              console.log(response.data);
+              console.log('------------------------');
+            }
+            
             const rawProduct = response.data as Partial<NutritionData>;
             const analysis = analyzeProduct(rawProduct, profile);
             await logScanLocally(user?.uid, rawProduct, analysis.grade, barcode);
@@ -320,6 +337,7 @@ export default function ScanScreen() {
             setMode('barcode');
             setProcessingStep('');
           } catch (e: any) {
+            console.error('OCR Submit Error Detail:', e);
             Alert.alert('Error', e.message || 'Failed to process image');
             setMode('nutritionLabel');
             setProcessingStep('');

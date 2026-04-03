@@ -140,6 +140,7 @@ export default function ResultScreen() {
 
     return () => clearTimeout(timer);
   }, [pendingUpdates, isUploadingImage, product?.barcode]);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -162,6 +163,7 @@ export default function ResultScreen() {
       </SafeAreaView>
     );
   }
+
 
   const isEditable = product.isEditable !== false;
   const isIncomplete = product.isIncomplete === true;

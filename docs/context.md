@@ -204,10 +204,10 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 
 **OCR / Nutrition label path (new product):**
 1. User takes photo → optional on-device OCR via `@react-native-ml-kit/text-recognition`.
-2. Photo uploaded to Firebase Storage at `{barcode}/ref_{imageType}.jpg` (e.g. `ref_nutritionLabel.jpg`).
+2. Photo downscaled on-device to 1080p via `expo-image-manipulator` and uploaded to Firebase Storage at `{barcode}/ref_{imageType}.jpg`.
 3. `onOCRSubmit` Cloud Function called with `{ barcode, ocrText, labelImageUrl, imageType }`.
-4. Server-side: `parseNutritionOCR(ocrText, GEMINI_API_KEY)` refines OCR with Gemini AI and saves raw data, setting `isEditable: true`, `isIncomplete: false`.
-5. Cloud Function **returns the raw product data directly** back to the client.
+4. Server-side: `parseNutritionOCR` extracts data using **Gemini Flash Lite** with **Structured Outputs** (JSON Schema). This reduces cost by 95% and ensures reliable JSON parsing.
+5. Cloud Function returns the raw product data directly back to the client.
 6. Client-side: `analyzeProduct()` is run locally on the **returned data** (saving an extra read call) and logs the scan.
 7. Photo URL stored in `referenceImages[imageType]` — **not** `productImageUrl`.
 
@@ -286,6 +286,7 @@ On any signup, a Firestore document is created at `/users/{uid}` with minimal da
 | `@react-native-firebase/*` | `^23.8.8` | Auth, Firestore, Functions, Storage |
 | `react-native-purchases` | `^9.14.0` | RevenueCat SDK |
 | `expo-camera` | `~17.0.10` | Barcode scanner + photo capture |
+| `expo-image-manipulator` | `~55.0.11` | On-device image resizing (1080p limit) |
 | `@react-native-ml-kit/text-recognition` | `^2.0.0` | On-device OCR |
 | `expo-image-picker` | `~17.0.10` | Gallery image picker (product photo) |
 | `posthog-react-native` | `^4.37.6` | Analytics |

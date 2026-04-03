@@ -227,7 +227,7 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 
 **Flow**:
 1. Increment usage counter (Now handled on client-side)
-2. Call `parseNutritionOCR(ocrText, labelImageUrl, GEMINI_API_KEY)` — uses Gemini API key for AI-enhanced parsing
+2. Call `parseNutritionOCR(ocrText, labelImageUrl, GEMINI_API_KEY)` — uses **Gemini Flash Lite** with **Structured Outputs** (JSON Schema) for consistent, low-cost extraction.
 3. Save product with `isEditable: true`, `isIncomplete: false`, `productImageUrl: null`
 4. Stores label photo URL in `referenceImages[imageType]` (default: `nutritionLabel`)
 5. **Returns the full, parsed product JSON directly** to the client.
@@ -254,7 +254,7 @@ All exports live in `functions/src/index.ts`. The functions package has its own 
 - Merges `referenceImages` map rather than replacing it
 
 **Flow**:
-1. Parse OCR text via `parseNutritionOCR()`
+1. Parse OCR text via `parseNutritionOCR()` using **Gemini Flash Lite** and **Structured Outputs**.
 2. Fetch existing product from Firestore
 3. Merge new nutrient data + metadata into the existing doc
 4. Update `referenceImages[imageType]` with new photo URL

@@ -14,44 +14,62 @@ async function parseNutritionOCR(ocrText, labelImageUrl, geminiKey, useAiOnly) {
             return localResult;
         }
     }
-    // --- PHASE 2: Gemini 2.5 Pro Vision ---
-    console.log(`Falling back to Gemini 2.5 Pro (useAiOnly: ${useAiOnly})...`);
+    // --- PHASE 2: Gemini Flash Lite ---
+    console.log(`Falling back to Gemini Flash Lite (useAiOnly: ${useAiOnly})...`);
     const genAI = new generative_ai_1.GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-flash-lite-latest' });
     let base64Image = null;
     if (labelImageUrl) {
         try {
+            console.log(`Fetching image from: ${labelImageUrl}`);
             const resp = await fetch(labelImageUrl);
+            if (!resp.ok) {
+                throw new Error(`HTTP error! status: ${resp.status}`);
+            }
             const buffer = await resp.arrayBuffer();
             base64Image = Buffer.from(buffer).toString('base64');
+            console.log(`Image fetched successfully. Base64 length: ${base64Image.length}`);
         }
         catch (e) {
             console.error("Failed to fetch image for Gemini:", e);
         }
     }
-    const prompt = `
-    Analyze this nutrition label image carefully. You MUST extract the nutrition data.
-    If you cannot find clear nutrition data, you MUST return exactly the word "failed" and nothing else.
-    If you do find nutrition data, return STRICT JSON format exactly like this:
-    {
-      "name": "string",
-      "brand": "string",
-      "ingredients": ["string"] | null,
-      "nutrients": {
-        "energy_kcal": number,
-        "protein_g": number,
-        "fat_g": number,
-        "saturated_fat_g": number,
-        "trans_fat_g": number,
-        "carbohydrate_g": number,
-        "sugar_g": number,
-        "sodium_mg": number
-      }
-    }
-    DO NOT guess the product name or brand. If they are NOT clearly visible in the image, return an empty string "".
-    Extract the product name and brand if they are visible in the image.
-    If you can find ingredients, return them as an array of strings. If you cannot find ingredients, return null.
-  `;
+    const responseSchema = {
+        type: generative_ai_1.SchemaType.OBJECT,
+        properties: {
+            name: {
+                type: generative_ai_1.SchemaType.STRING,
+                description: "The product name. If not visible, return 'not found'."
+            },
+            brand: {
+                type: generative_ai_1.SchemaType.STRING,
+                description: "The brand name. If not visible, return 'not found'."
+            },
+            ingredients: {
+                type: generative_ai_1.SchemaType.ARRAY,
+                items: { type: generative_ai_1.SchemaType.STRING },
+                nullable: true,
+                description: "List of individual ingredients. Make sure to properly split ingredients into separate array items, do NOT return a single comma-separated string. If no ingredients are found, return null."
+            },
+            nutrients: {
+                type: generative_ai_1.SchemaType.OBJECT,
+                properties: {
+                    energy_kcal: { type: generative_ai_1.SchemaType.NUMBER },
+                    protein_g: { type: generative_ai_1.SchemaType.NUMBER },
+                    fat_g: { type: generative_ai_1.SchemaType.NUMBER },
+                    saturated_fat_g: { type: generative_ai_1.SchemaType.NUMBER },
+                    trans_fat_g: { type: generative_ai_1.SchemaType.NUMBER },
+                    carbohydrate_g: { type: generative_ai_1.SchemaType.NUMBER },
+                    sugar_g: { type: generative_ai_1.SchemaType.NUMBER },
+                    sodium_mg: { type: generative_ai_1.SchemaType.NUMBER }
+                },
+                required: ["energy_kcal", "protein_g", "fat_g", "saturated_fat_g", "trans_fat_g", "carbohydrate_g", "sugar_g", "sodium_mg"],
+                description: "Nutritional data per 100g, can be 0. If not visible, return -999."
+            }
+        },
+        required: ["name", "brand", "nutrients"]
+    };
+    const prompt = `Extract the nutritional data and ingredients from this label according to the provided JSON schema. If the image does not contain clear nutrition data, you MUST return a valid JSON object with the product 'name' as "failed" and empty/zero for other fields.`;
     const parts = [{ text: prompt }];
     if (!useAiOnly && ocrText) {
         parts.push({ text: `\n\nOCR Text from device:\n${ocrText}` });
@@ -65,16 +83,21 @@ async function parseNutritionOCR(ocrText, labelImageUrl, geminiKey, useAiOnly) {
         });
     }
     try {
-        const result = await model.generateContent(parts);
-        const response = await result.response;
-        const text = response.text().trim();
-        if (text.toLowerCase() === 'failed') {
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts }],
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: responseSchema,
+            }
+        });
+        // Log the raw text returned by Gemini before parsing
+        const text = result.response.text().trim();
+        console.log("Raw Gemini Response:", text);
+        // Parse the natively structured JSON response
+        const parsed = JSON.parse(text);
+        if (parsed.name && parsed.name.toLowerCase() === 'failed') {
             return 'failed';
         }
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch)
-            throw new Error('Failed to parse AI response');
-        const parsed = JSON.parse(jsonMatch[0]);
         // Ensure ingredients is an array if returned as null
         if (parsed.ingredients === null) {
             parsed.ingredients = [];

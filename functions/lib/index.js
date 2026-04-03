@@ -69,7 +69,7 @@ exports.cacheProduct = functions.https.onCall({
             ...productData,
             barcode,
             dataSource: 'OpenFoodFacts',
-            isEditable: false,
+            isEditable: true,
             isIncomplete: false,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
         };
