@@ -92,13 +92,13 @@ The root stack is defined in `app/_layout.tsx`. Navigation is **entirely guard-d
 
 ### Route Groups
 
-| Group | Path prefix | Requires Auth | Purpose |
-|-------|-------------|---------------|---------|
-| `(onboarding)` | `/(onboarding)/step1..4` | ❌ No | Value proposition carousel for new visitors |
-| `(auth)` | `/(auth)/` | ❌ No | Signup, Login, VerifyEmail, SetupProfile |
-| `(main)` | `/(main)/` | ✅ Yes | Bottom-tab authenticated app |
-| `(legal)` | `/(legal)/` | ❌ No | Privacy Policy, ToS (accessible from Profile & Paywall) |
-| Root | `/paywall` | ✅ Yes | Full-screen modal overlay routes |
+| Group            | Path prefix                | Requires Auth | Purpose                                                 |
+| ---------------- | -------------------------- | ------------- | ------------------------------------------------------- |
+| `(onboarding)` | `/(onboarding)/step1..4` | ❌ No         | Value proposition carousel for new visitors             |
+| `(auth)`       | `/(auth)/`               | ❌ No         | Signup, Login, VerifyEmail, SetupProfile                |
+| `(main)`       | `/(main)/`               | ✅ Yes        | Bottom-tab authenticated app                            |
+| `(legal)`      | `/(legal)/`              | ❌ No         | Privacy Policy, ToS (accessible from Profile & Paywall) |
+| Root             | `/paywall`               | ✅ Yes        | Full-screen modal overlay routes                        |
 
 ### Navigation Guard Logic (in `app/_layout.tsx`)
 
@@ -131,13 +131,13 @@ User logged in, profile complete:
 
 ## State Management
 
-| State | Where | Mechanism |
-|-------|-------|-----------|
-| Auth user + Firestore profile | `useAuth()` hook | Firebase `onAuthStateChanged` + Firestore `onSnapshot` on `/users/{uid}` |
-| Onboarding completion status | `OnboardingContext` | AsyncStorage key `onboarding_complete` (value `'true'`) |
-| Health profile (primary) | AsyncStorage | Key `health_profile` (string: `'general'`, `'diabetic'`, etc.) |
-| Subscription / Pro status | `useSubscription()` | RevenueCat `react-native-purchases` SDK |
-| Daily scan count | `useScanCount()` | Firestore real-time query on `users/{uid}/scans` filtered by today |
+| State                         | Where                 | Mechanism                                                                      |
+| ----------------------------- | --------------------- | ------------------------------------------------------------------------------ |
+| Auth user + Firestore profile | `useAuth()` hook    | Firebase `onAuthStateChanged` + Firestore `onSnapshot` on `/users/{uid}` |
+| Onboarding completion status  | `OnboardingContext` | AsyncStorage key `onboarding_complete` (value `'true'`)                    |
+| Health profile (primary)      | AsyncStorage          | Key `health_profile` (string: `'general'`, `'diabetic'`, etc.)           |
+| Subscription / Pro status     | `useSubscription()` | RevenueCat `react-native-purchases` SDK                                      |
+| Daily scan count              | `useScanCount()`    | Firestore real-time query on `users/{uid}/scans` filtered by today           |
 
 **No Zustand store is actively used** — the `src/store/` directory exists but is empty.
 
@@ -147,47 +147,46 @@ User logged in, profile complete:
 
 ### (onboarding) — 4 screens, no auth
 
-| File | Route | Content |
-|------|-------|---------|
-| `step1.tsx` | `/(onboarding)/step1` | "Sugar. Decoded." — value prop with illustration |
-| `step2.tsx` | `/(onboarding)/step2` | Second feature slide |
-| `step3.tsx` | `/(onboarding)/step3` | Third feature slide |
+| File          | Route                   | Content                                                                                                                                                  |
+| ------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `step1.tsx` | `/(onboarding)/step1` | "Sugar. Decoded." — value prop with illustration                                                                                                        |
+| `step2.tsx` | `/(onboarding)/step2` | Second feature slide                                                                                                                                     |
+| `step3.tsx` | `/(onboarding)/step3` | Third feature slide                                                                                                                                      |
 | `step4.tsx` | `/(onboarding)/step4` | **Primary Goal selector** — user picks a health profile; calls `completeOnboarding()` which sets AsyncStorage and optionally syncs to Firestore |
 
 Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, then `updateDoc` if user is already logged in.
 
 ### (auth) — 4 screens
 
-| File | Route | Key Behavior |
-|------|-------|-------------|
-| `signup.tsx` | `/(auth)/signup` | Email/password + Phone (OTP) + Google Sign-In. On success creates `/users/{uid}` doc in Firestore. Sends email verification for email method. **Checks for returning users after success to skip setup-profile.** |
-| `login.tsx` | `/(auth)/login` | Email + Google login. **Checks for returning users after success to skip setup-profile.** |
-| `verify-email.tsx` | `/(auth)/verify-email` | Polls/shows verification status, resend option |
+| File                  | Route                     | Key Behavior                                                                                                                                                                                                                                                                                     |
+| --------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `signup.tsx`        | `/(auth)/signup`        | Email/password + Phone (OTP) + Google Sign-In. On success creates `/users/{uid}` doc in Firestore. Sends email verification for email method. **Checks for returning users after success to skip setup-profile.**                                                                        |
+| `login.tsx`         | `/(auth)/login`         | Email + Google login.**Checks for returning users after success to skip setup-profile.**                                                                                                                                                                                                   |
+| `verify-email.tsx`  | `/(auth)/verify-email`  | Polls/shows verification status, resend option                                                                                                                                                                                                                                                   |
 | `setup-profile.tsx` | `/(auth)/setup-profile` | **Collects displayName, healthProfiles (multi-select), ageRange, notifications pref**. On save: writes full profile to Firestore `/users/{uid}` with `hasOnboarded: true`, updates AsyncStorage, calls `setHasOnboarded(true)`. Navigation guard then auto-redirects to `/(main)`. |
 
 ### (main) — 4 tabs + 1 hidden
 
-| File | Tab | Purpose |
-|------|-----|---------|
-| `index.tsx` | Home | Greeting, upgrade banner (free users), Scan CTA, history shortcut. Shows `remainingScans` from `useScanCount`. |
-| `scan.tsx` | Scan | Camera view. **Mode: `'barcode'`** → auto-scan EAN13/UPC → calls `onScanProduct` Cloud Function. Checks `isIncomplete` flag on result — if true, shows alert prompting nutrition label scan. **Mode: `'nutritionLabel'`** → capture photo → OCR → calls `onOCRSubmit` (new product) or `onOCRUpdate` (correction). Checks daily scan limit before NEW scans; corrections skip the limit check. Accepts `isUpdateMode: 'true'` and `imageType` params. |
-| `history.tsx` | History | Real-time FlatList of `users/{uid}/scans` ordered by `timestamp desc`. Shows product name, brand, rating badge, date. |
-| `profile.tsx` | Profile | Shows email, subscription status, links to legal pages, Upgrade CTA, Logout. |
-| `result.tsx` | Hidden (no tab) | Receives product data via router params (`data` as JSON string). Shows grade badge, warnings, editable nutrient fields. **If `product.isIncomplete === true`**: shows a red warning banner at top prompting label scan (navigates to `scan.tsx` with `isUpdateMode: 'true'`). **"Something look wrong?"** banner now passes `isUpdateMode: 'true'` so the re-scan calls `onOCRUpdate` (updates existing product) instead of creating a new one. Implements **optimistic UI + background debounced save** (4s debounce) via `updateProduct` Cloud Function. **Product image** (`productImageUrl`) is only set when user explicitly picks from gallery — never from OCR flows. Flushes pending updates on unmount. |
-
+| File            | Tab             | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.tsx`   | Home            | Greeting, upgrade banner (free users), Scan CTA, history shortcut. Shows `remainingScans` from `useScanCount`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `scan.tsx`    | Scan            | Camera view.**Mode: `'barcode'`** → auto-scan EAN13/UPC → calls `onScanProduct` Cloud Function. Checks `isIncomplete` flag on result — if true, shows alert prompting nutrition label scan. **Mode: `'nutritionLabel'`** → capture photo → OCR → calls `onOCRSubmit` (new product) or `onOCRUpdate` (correction). Checks daily scan limit before NEW scans; corrections skip the limit check. Accepts `isUpdateMode: 'true'` and `imageType` params.                                                                                                                                                                                                                                                                    |
+| `history.tsx` | History         | Real-time FlatList of `users/{uid}/scans` ordered by `timestamp desc`. Shows product name, brand, rating badge, date.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `profile.tsx` | Profile         | Shows email, subscription status, links to legal pages, Upgrade CTA, Logout.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `result.tsx`  | Hidden (no tab) | Receives product data via router params (`data` as JSON string). Shows grade badge, warnings, editable nutrient fields. **If `product.isIncomplete === true`**: shows a red warning banner at top prompting label scan (navigates to `scan.tsx` with `isUpdateMode: 'true'`). **"Something look wrong?"** banner now passes `isUpdateMode: 'true'` so the re-scan calls `onOCRUpdate` (updates existing product) instead of creating a new one. Implements **optimistic UI + background debounced save** (4s debounce) via `updateProduct` Cloud Function. **Product image** (`productImageUrl`) is only set when user explicitly picks from gallery — never from OCR flows. Flushes pending updates on unmount. |
 
 ### Root-level modal screens
 
-| File | Route | Purpose |
-|------|-------|---------|
+| File            | Route        | Purpose                                                                                                                                                      |
+| --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `paywall.tsx` | `/paywall` | RevenueCat paywall. Shows 3 package cards (Monthly $2.99, 6-Month $12.99, Annual $19.99). Already-pro users see confirmation screen. Web users see fallback. |
 
 ### (legal)
 
-| File | Route | Header behavior |
-|------|-------|-----------------|
+| File            | Route                | Header behavior                                                                                       |
+| --------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
 | `privacy.tsx` | `/(legal)/privacy` | Rendered directly in root stack with `headerTitle: "Privacy Policy"`. iOS native back button works. |
-| `tos.tsx` | `/(legal)/tos` | Rendered in root stack with `headerTitle: "Terms of Service"`. |
+| `tos.tsx`     | `/(legal)/tos`     | Rendered in root stack with `headerTitle: "Terms of Service"`.                                      |
 
 ---
 
@@ -196,6 +195,7 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 ### Product Analysis Pipeline
 
 **Barcode scan path (Local-First):**
+
 1. User scans barcode → `scan.tsx` checks **cloud Firestore** `/products/{barcode}` using `getDocFromServer()` to bypass stale local cache.
 2. If found and complete: Runs `analyzeProduct()` on-device using local `nutritionalThresholds.json` and logs scan locally to `/users/{uid}/scans`.
 3. If not found in cloud: Client fetches directly from **Open Food Facts API** (`https://world.openfoodfacts.org/api/v2/product/{barcode}.json`).
@@ -203,6 +203,7 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 5. If tracking data is `isIncomplete` or missing entirely: UI prompts user with **"Nutrition Data Missing"** or **"Product Not Found"** and switches to nutrition label mode.
 
 **OCR / Nutrition label path (new product):**
+
 1. User takes photo → optional on-device OCR via `@react-native-ml-kit/text-recognition`.
 2. Photo downscaled on-device to 1080p via `expo-image-manipulator` and uploaded to Firebase Storage at `{barcode}/ref_{imageType}.jpg`.
 3. `onOCRSubmit` Cloud Function called with `{ barcode, ocrText, labelImageUrl, imageType }`.
@@ -212,6 +213,7 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 7. Photo URL stored in `referenceImages[imageType]` — **not** `productImageUrl`.
 
 **OCR correction path (existing product):**
+
 1. User taps **"Something look wrong?"** or the incomplete-data banner in `result.tsx`
 2. `scan.tsx` opens with `isUpdateMode: 'true'` + `initialBarcode` pre-filled
 3. User takes photo → same OCR flow
@@ -226,6 +228,7 @@ Step 4 calls `completeOnboarding(selectedProfile)` from `OnboardingContext`, the
 Ratings are `A | B | C | D | E` computed by `analyzeProduct()` in `src/utils/analysisEngine.ts` (and mirrored in `functions/src/utils/`).
 
 **Score starts at 100**, then penalties apply:
+
 - High sugar (>5g for diabetic/PCOS, >10g for child, >15g general): -20 to -40
 - High sodium (>600mg): -15 general, -40 for heart profile
 - High saturated fat (>5g): -10 general, -30 for heart profile
@@ -248,16 +251,16 @@ Rating colors: A=#2ECC71, B=#A8E063, C=#F1C40F, D=#E67E22, E=#E74C3C
 
 **Single source of truth** — import as `import { theme } from '../../src/theme/designSystem'`.
 
-| Token | Value |
-|-------|-------|
-| Primary color | `#006d43` (dark green) |
-| Primary container | `#00a86b` |
-| Surface (base) | `#f7faf8` |
-| Surface lowest (cards) | `#ffffff` |
-| Error | `#ba1a1a` |
-| Font family | `Manrope` (display, headline, body, label — all same) |
-| Border radius default | `16px` |
-| Border radius full | `9999` |
+| Token                  | Value                                                    |
+| ---------------------- | -------------------------------------------------------- |
+| Primary color          | `#006d43` (dark green)                                 |
+| Primary container      | `#00a86b`                                              |
+| Surface (base)         | `#f7faf8`                                              |
+| Surface lowest (cards) | `#ffffff`                                              |
+| Error                  | `#ba1a1a`                                              |
+| Font family            | `Manrope` (display, headline, body, label — all same) |
+| Border radius default  | `16px`                                                 |
+| Border radius full     | `9999`                                                 |
 
 Spacing scale: `{1:4, 2:8, 3:12, 4:16, 5:20, 6:24, 8:32}`.
 
@@ -270,6 +273,7 @@ Spacing scale: `{1:4, 2:8, 3:12, 4:16, 5:20, 6:24, 8:32}`.
 Firebase Auth is used via `@react-native-firebase/auth` (native SDK, not the JS web SDK).
 
 Supported methods:
+
 - **Email/Password** — with mandatory email verification flow
 - **Google Sign-In** — via `@react-native-google-signin/google-signin`. Web Client ID: `7881873473-rbfurd0g39fioii3uuh9unp9tnct8718.apps.googleusercontent.com`
 - **Phone (SMS OTP)** — via `signInWithPhoneNumber`, default country code `+91`
@@ -280,26 +284,27 @@ On any signup, a Firestore document is created at `/users/{uid}` with minimal da
 
 ## Key Dependencies
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `expo-router` | `~6.0.23` | File-based navigation |
-| `@react-native-firebase/*` | `^23.8.8` | Auth, Firestore, Functions, Storage |
-| `react-native-purchases` | `^9.14.0` | RevenueCat SDK |
-| `expo-camera` | `~17.0.10` | Barcode scanner + photo capture |
-| `expo-image-manipulator` | `~55.0.11` | On-device image resizing (1080p limit) |
-| `@react-native-ml-kit/text-recognition` | `^2.0.0` | On-device OCR |
-| `expo-image-picker` | `~17.0.10` | Gallery image picker (product photo) |
-| `posthog-react-native` | `^4.37.6` | Analytics |
-| `@react-native-async-storage/async-storage` | `2.2.0` | Local onboarding state |
-| `date-fns` | `^4.1.0` | Date formatting |
-| `react-native-markdown-display` | `^7.0.2` | Render markdown in legal pages |
-| `zustand` | `^5.0.12` | State library (imported but store dir is empty — not yet used) |
+| Package                                       | Version      | Purpose                                                         |
+| --------------------------------------------- | ------------ | --------------------------------------------------------------- |
+| `expo-router`                               | `~6.0.23`  | File-based navigation                                           |
+| `@react-native-firebase/*`                  | `^23.8.8`  | Auth, Firestore, Functions, Storage                             |
+| `react-native-purchases`                    | `^9.14.0`  | RevenueCat SDK                                                  |
+| `expo-camera`                               | `~17.0.10` | Barcode scanner + photo capture                                 |
+| `expo-image-manipulator`                    | `~55.0.11` | On-device image resizing (720p limit)                           |
+| `@react-native-ml-kit/text-recognition`     | `^2.0.0`   | On-device OCR                                                   |
+| `expo-image-picker`                         | `~17.0.10` | Gallery image picker (product photo)                            |
+| `posthog-react-native`                      | `^4.37.6`  | Analytics                                                       |
+| `@react-native-async-storage/async-storage` | `2.2.0`    | Local onboarding state                                          |
+| `date-fns`                                  | `^4.1.0`   | Date formatting                                                 |
+| `react-native-markdown-display`             | `^7.0.2`   | Render markdown in legal pages                                  |
+| `zustand`                                   | `^5.0.12`  | State library (imported but store dir is empty — not yet used) |
 
 ---
 
 ## Important Configuration Details
 
 ### `app.json` Plugins (native code generators)
+
 - `expo-build-properties` — forces iOS static frameworks for Firebase (`useFrameworks: static`)
 - `expo-camera` — injects camera permission string, disables microphone
 - `@react-native-firebase/app` + `auth` — native Firebase setup
@@ -307,10 +312,12 @@ On any signup, a Firestore document is created at `/users/{uid}` with minimal da
 - `expo-localization` — for locale detection
 
 ### Permissions configured in `app.json`
+
 - **iOS** (`infoPlist`): Camera, PhotoLibrary
 - **Android**: CAMERA, READ/WRITE_EXTERNAL_STORAGE, VIBRATE, SYSTEM_ALERT_WINDOW, BILLING
 
 ### Firebase config files
+
 - `google-services.json` — Android Firebase config (root of project)
 - `GoogleService-Info.plist` — iOS Firebase config (root of project)
 
@@ -323,6 +330,7 @@ PostHog analytics, proxied via `https://pharma.ritom.in`. API key: `phc_IbZDwVYF
 Users are identified in PostHog using their Firebase `uid` via `posthog.identify(uid, properties)` in `app/_layout.tsx`. This ensures consistent tracking across app restarts and devices. `posthog.reset()` is called on logout.
 
 Common events tracked:
+
 - `user_signup` — `{ method: 'email' | 'phone' | 'google' }`
 - `barcode_detected` — `{ barcode, format }`
 - `health_profile_set` — `{ profiles_selected, age_range }`
@@ -343,6 +351,6 @@ Common events tracked:
 7. **`productImageUrl` vs `referenceImages`**: `productImageUrl` is ONLY set when the user explicitly picks a photo from their gallery in `result.tsx`. Nutrition label photos taken during OCR scans are stored in `product.referenceImages` (e.g. `referenceImages.nutritionLabel`) and in Firebase Storage as `{barcode}/ref_{imageType}.jpg`. They are never set as the product display image.
 8. **`onOCRUpdate` vs `onOCRSubmit`**: `onOCRUpdate` is used for corrections to existing products (does not count against scan limit). `onOCRSubmit` creates a new product record. Both are triggered from `scan.tsx`, routed by the `isUpdateMode` param.
 9. **Function from `app/_layout.tsx`**: `configureRevenueCat()` is called once on mount; `syncRevenueCatUser(uid)` and `posthog.identify(uid)` are called whenever the auth user changes to keep analytics and subscriptions in sync.
-11. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.
-12. **Correction Banner Visibility**: The "Something look wrong?" banner in `result.tsx` appears if `product.isEditable === true` OR if `product.isIncomplete === true`. This allows users to "fix" incomplete data even for products sourced from OpenFoodFacts that are otherwise locked.
-13. **Stale Cache Prevention**: All barcode lookups in `scan.tsx` use `getDocFromServer()` to ensure that updates made via Cloud Functions are immediately visible to the client upon the next scan.
+10. **Legal pages** (`privacy`, `tos`) navigate via root stack (not inside `(legal)` group's own stack) so the native iOS back button works correctly.
+11. **Correction Banner Visibility**: The "Something look wrong?" banner in `result.tsx` appears if `product.isEditable === true` OR if `product.isIncomplete === true`. This allows users to "fix" incomplete data even for products sourced from OpenFoodFacts that are otherwise locked.
+12. **Stale Cache Prevention**: All barcode lookups in `scan.tsx` use `getDocFromServer()` to ensure that updates made via Cloud Functions are immediately visible to the client upon the next scan.
